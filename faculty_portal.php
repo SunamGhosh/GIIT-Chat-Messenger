@@ -229,11 +229,96 @@ if (isset($_POST['POST_TYPE'])) {
         exit;
     }
 
+    if ($type === 'DELETE_GROUP') {
+        $g_id = intval($_POST['groupId'] ?? 0);
+        if ($g_id > 0) {
+            $stmt = $con->prepare("DELETE FROM chat_groups WHERE id = ? AND created_by = ?");
+            $stmt->bind_param("ii", $g_id, $faculty_id);
+            if ($stmt->execute()) {
+                echo json_encode(['error' => 0, 'message' => 'Group deleted successfully']);
+            } else {
+                echo json_encode(['error' => 1, 'message' => $stmt->error]);
+            }
+            $stmt->close();
+        } else {
+            echo json_encode(['error' => 1, 'message' => 'Invalid Group']);
+        }
+        exit;
+    }
+
+    if ($type === 'REMOVE_MEMBER') {
+        $g_id = intval($_POST['groupId'] ?? 0);
+        $s_id = intval($_POST['studentId'] ?? 0);
+        if ($g_id > 0 && $s_id > 0) {
+            $stmt = $con->prepare("DELETE FROM group_members WHERE group_id = ? AND user_id = ? AND user_role = 'student'");
+            $stmt->bind_param("ii", $g_id, $s_id);
+            if ($stmt->execute()) {
+                echo json_encode(['error' => 0, 'message' => 'Member removed']);
+            } else {
+                echo json_encode(['error' => 1, 'message' => $stmt->error]);
+            }
+            $stmt->close();
+        } else {
+            echo json_encode(['error' => 1, 'message' => 'Invalid Data']);
+        }
+        exit;
+    }
+
+    if ($type === 'ADD_MEMBER') {
+        $g_id = intval($_POST['groupId'] ?? 0);
+        $s_id = intval($_POST['studentId'] ?? 0);
+        if ($g_id > 0 && $s_id > 0) {
+            // Check if already a member
+            $check = $con->query("SELECT * FROM group_members WHERE group_id = $g_id AND user_id = $s_id AND user_role = 'student'");
+            if ($check && $check->num_rows > 0) {
+                echo json_encode(['error' => 1, 'message' => 'Student is already a member']);
+            } else {
+                $stmt = $con->prepare("INSERT INTO group_members (group_id, user_id, user_role) VALUES (?, ?, 'student')");
+                $stmt->bind_param("ii", $g_id, $s_id);
+                if ($stmt->execute()) {
+                    echo json_encode(['error' => 0, 'message' => 'Member added']);
+                } else {
+                    echo json_encode(['error' => 1, 'message' => $stmt->error]);
+                }
+                $stmt->close();
+            }
+        } else {
+            echo json_encode(['error' => 1, 'message' => 'Invalid Data']);
+        }
+        exit;
+    }
+
+    if ($type === 'GET_GROUP_MEMBERS') {
+        $g_id = intval($_POST['groupId'] ?? 0);
+        if ($g_id > 0) {
+            $sql = "SELECT gm.user_role, gm.user_id, s.s_name, s.s_roll_no 
+                    FROM group_members gm 
+                    LEFT JOIN student s ON gm.user_id = s.s_id AND gm.user_role = 'student'
+                    WHERE gm.group_id = $g_id";
+            $res = $con->query($sql);
+            $members = [];
+            if ($res) {
+                while ($row = $res->fetch_assoc()) {
+                    if ($row['user_role'] === 'student') {
+                        $members[] = ['name' => $row['s_name'], 'role' => 'Student', 'info' => $row['s_roll_no'], 'student_id' => $row['user_id']];
+                    } else {
+                        $members[] = ['name' => 'Faculty Admin', 'role' => ucfirst($row['user_role']), 'info' => '-'];
+                    }
+                }
+            }
+            echo json_encode(['error' => 0, 'data' => $members]);
+        } else {
+            echo json_encode(['error' => 1, 'message' => 'Invalid Group']);
+        }
+        exit;
+    }
+
     if ($type === 'CREATE_GROUP') {
         $name = mysqli_real_escape_string($con, $_POST['group_name'] ?? '');
         $uni_id = intval($_POST['university'] ?? 0);
         $course_id = intval($_POST['course'] ?? 0);
         $semester = mysqli_real_escape_string($con, $_POST['semester'] ?? '');
+        $student_ids = $_POST['student_ids'] ?? [];
 
         $con->begin_transaction();
         try {
@@ -248,7 +333,16 @@ if (isset($_POST['POST_TYPE'])) {
             $stmt->execute();
             $stmt->close();
 
-            if ($course_id && $semester) {
+            if (!empty($student_ids)) {
+                // Manual selection
+                $stmt = $con->prepare("INSERT INTO group_members (group_id, user_id, user_role) VALUES (?, ?, 'student')");
+                foreach ($student_ids as $s_id) {
+                    $s_id = intval($s_id);
+                    $stmt->bind_param("ii", $groupId, $s_id);
+                    $stmt->execute();
+                }
+                $stmt->close();
+            } else if ($course_id && $semester) {
                 $sem_num = str_replace('Sem', '', $semester);
                 $student_sql = "INSERT INTO group_members (group_id, user_id, user_role) 
                                SELECT ?, s_id, 'student' FROM student 
@@ -847,6 +941,125 @@ if (file_exists("pages/header.php")) {
     .w3-container h5 {
         font-size: 0.95rem !important;
     }
+
+    .student-badge {
+        background: #f1f5f9;
+        color: #1e293b;
+        padding: 5px 12px;
+        border-radius: 20px;
+        font-size: 0.75rem;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        border: 1px solid #e2e8f0;
+        font-weight: 500;
+        transition: all 0.2s;
+    }
+
+    .student-badge:hover {
+        background: #e2e8f0;
+    }
+
+    .student-badge i {
+        cursor: pointer;
+        color: #ef4444;
+        font-size: 0.9rem;
+    }
+
+    /* Group Members Modal Styles */
+    .gm-table {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0 8px;
+    }
+    .gm-row {
+        background: #fff;
+        transition: transform 0.2s;
+    }
+    .gm-row td {
+        padding: 12px 15px;
+        vertical-align: middle;
+        border-top: 1px solid #f1f5f9;
+        border-bottom: 1px solid #f1f5f9;
+    }
+    .gm-row td:first-child {
+        border-left: 1px solid #f1f5f9;
+        border-radius: 10px 0 0 10px;
+    }
+    .gm-row td:last-child {
+        border-right: 1px solid #f1f5f9;
+        border-radius: 0 10px 10px 0;
+    }
+    .role-badge {
+        padding: 4px 10px;
+        border-radius: 20px;
+        font-size: 0.7rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        display: inline-block;
+    }
+    .role-student { background: #eff6ff; color: #3b82f6; }
+    .role-faculty { background: #fff7ed; color: #ea580c; }
+
+    .action-btn {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: all 0.2s;
+        border: 1px solid #fee2e2;
+        color: #ef4444;
+        background: #fff;
+    }
+    .action-btn:hover {
+        background: #ef4444;
+        color: #fff;
+        transform: scale(1.1);
+    }
+
+    .search-item {
+        padding: 10px 15px;
+        cursor: pointer;
+        font-size: 0.85rem;
+        border-bottom: 1px solid #f1f5f9;
+        transition: background 0.2s;
+    }
+
+    .search-item:hover {
+        background: #f8fafc;
+        color: #3b82f6;
+    }
+
+    .g-mode-btn {
+        flex: 1;
+        text-align: center;
+        padding: 10px;
+        cursor: pointer;
+        border: 1px solid #e2e8f0;
+        background: #fff;
+        transition: all 0.3s;
+        font-weight: 500;
+        font-size: 0.85rem;
+    }
+
+    .g-mode-btn.active {
+        background: #eff6ff;
+        border-color: #3b82f6;
+        color: #3b82f6;
+        z-index: 1;
+    }
+
+    .g-mode-btn:first-child {
+        border-radius: 8px 0 0 8px;
+    }
+
+    .g-mode-btn:last-child {
+        border-radius: 0 8px 8px 0;
+        margin-left: -1px;
+    }
 </style>
 
 <div class="container-fluid chat-wrapper">
@@ -901,12 +1114,22 @@ if (file_exists("pages/header.php")) {
                                     <div class="chat-item-subtitle">Custom Group Chat</div>
                                 </div>
                             </div>
-                            <div class="chat-item-action" style="margin-left: 10px;">
+                            <div class="chat-item-action" style="margin-left: 10px; display: flex; gap: 5px;">
+                                <i class="fa fa-users"
+                                    style="color: #cbd5e1; cursor: pointer; padding: 5px; transition: color 0.2s;"
+                                    onmouseover="this.style.color='#10b981'" onmouseout="this.style.color='#cbd5e1'"
+                                    title="View Members"
+                                    onclick="event.stopPropagation(); viewGroupMembers(<?= $g['id'] ?>, '<?= addslashes($g['group_name']) ?>')"></i>
                                 <i class="fa fa-pencil"
                                     style="color: #cbd5e1; cursor: pointer; padding: 5px; transition: color 0.2s;"
                                     onmouseover="this.style.color='#3b82f6'" onmouseout="this.style.color='#cbd5e1'"
                                     title="Rename Group"
                                     onclick="event.stopPropagation(); renameGroup(<?= $g['id'] ?>, '<?= addslashes($g['group_name']) ?>')"></i>
+                                <i class="fa fa-trash"
+                                    style="color: #cbd5e1; cursor: pointer; padding: 5px; transition: color 0.2s;"
+                                    onmouseover="this.style.color='#ef4444'" onmouseout="this.style.color='#cbd5e1'"
+                                    title="Delete Group"
+                                    onclick="event.stopPropagation(); deleteGroup(<?= $g['id'] ?>, '<?= addslashes($g['group_name']) ?>')"></i>
                             </div>
                         </div>
                     </div>
@@ -916,15 +1139,24 @@ if (file_exists("pages/header.php")) {
 
         <!-- Main Area -->
         <div class="chat-main">
-            <div class="chat-header">
-                <div>
-                    <h4 id="active-title">Academic Broadcast</h4>
-                    <div class="text-muted" id="active-subtitle">Select filters to broadcast to specific classes</div>
+            <div class="chat-header" style="padding: 10px 20px; border-bottom: 1px solid #e2e8f0; background: #fff; display: flex; align-items: center; justify-content: space-between;">
+                <div style="display: flex; align-items: center; cursor: pointer; flex: 1; padding: 5px; border-radius: 8px; transition: background 0.2s;" 
+                     onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='transparent'"
+                     onclick="openCurrentGroupMembers()" title="View Group Details">
+                    <div id="header-avatar" style="width: 42px; height: 42px; border-radius: 12px; background: #eff6ff; color: #3b82f6; display: flex; align-items: center; justify-content: center; margin-right: 15px; font-size: 1.2rem; box-shadow: 0 2px 4px rgba(59, 130, 246, 0.1);">
+                        <i class="fa fa-bullhorn" id="header-icon"></i>
+                    </div>
+                    <div>
+                        <h4 id="active-title" style="margin: 0; font-size: 1.1rem; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 8px;">
+                            Academic Broadcast
+                            <i class="fa fa-chevron-right" style="font-size: 0.7rem; color: #94a3b8;"></i>
+                        </h4>
+                        <div class="text-muted" id="active-subtitle" style="font-size: 0.8rem; margin-top: 2px;">Select filters to broadcast to specific classes</div>
+                    </div>
                 </div>
                 <div class="header-actions">
-                    <div
-                        style="width: 36px; height: 36px; border-radius: 50%; background: #f1f5f9; display: flex; align-items: center; justify-content: center; color: #64748b;">
-                        <i class="fa fa-info"></i>
+                    <div class="header-btn" style="background: #f1f5f9; color: #64748b;" onclick="openCurrentGroupMembers()">
+                        <i class="fa fa-info-circle"></i>
                     </div>
                 </div>
             </div>
@@ -1188,6 +1420,33 @@ if (file_exists("pages/header.php")) {
     </div>
 </div>
 
+<div class="modal fade custom-modal" id="groupMembersModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+                <h4 class="modal-title"><i class="fa fa-users"></i> Group Members: <span id="gm-title"></span></h4>
+            </div>
+            <div class="modal-body">
+                <div id="gm-add-area" style="margin-bottom: 15px; border-bottom: 1px solid #f1f5f9; padding-bottom: 15px; display: none;">
+                    <label style="font-size: 0.8rem; color: #64748b; margin-bottom: 8px;">Add New Member</label>
+                    <div style="position: relative;">
+                        <i class="fa fa-search" style="position: absolute; left: 12px; top: 10px; color: #94a3b8; font-size: 0.9rem;"></i>
+                        <input type="text" id="gm-search-input" class="form-control input-sm" placeholder="Search student name..." onkeyup="searchAddMembers()" style="padding-left: 35px; border-radius: 20px;">
+                        <div id="gm-search-results" style="position: absolute; width: 100%; background: white; z-index: 1000; border: 1px solid #e2e8f0; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); margin-top: 5px; display: none; max-height: 200px; overflow-y: auto;"></div>
+                    </div>
+                </div>
+                <div id="group_members_body" style="max-height: 50vh; overflow-y: auto;">
+                    <!-- Members will be loaded here -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div id="dmModal" class="modal fade custom-modal" role="dialog">
     <div class="modal-dialog">
         <div class="modal-content">
@@ -1225,35 +1484,63 @@ if (file_exists("pages/header.php")) {
                     <label>Group Name</label>
                     <input type="text" id="g-name" class="form-control" placeholder="e.g. Project Team A" required>
                 </div>
+
                 <div class="form-group">
-                    <label>Auto-Add University</label>
-                    <select id="g-uni" class="form-control">
-                        <option value="">None</option>
-                        <?php foreach ($universities as $u): ?>
-                            <option value="<?= $u['id'] ?>"><?= $u['name'] ?></option>
-                        <?php endforeach; ?>
-                    </select>
+                    <label>Selection Mode</label>
+                    <div style="display: flex;">
+                        <div id="btn-mode-auto" class="g-mode-btn active" onclick="toggleGroupMode('auto')">Auto (Filters)</div>
+                        <div id="btn-mode-manual" class="g-mode-btn" onclick="toggleGroupMode('manual')">Manual (Select)</div>
+                    </div>
                 </div>
-                <div class="row">
-                    <div class="col-sm-6">
-                        <div class="form-group">
-                            <label>Auto-Add Course</label>
-                            <select id="g-crs" class="form-control">
-                                <option value="">None</option>
-                                <?php foreach ($allCourses as $c): ?>
-                                    <option value="<?= $c['id'] ?>"><?= $c['sname'] ?> - <?= $c['name'] ?></option>
-                                <?php endforeach; ?>
-                            </select>
+
+                <div id="g-auto-fields">
+                    <div class="form-group">
+                        <label>Auto-Add University</label>
+                        <select id="g-uni" class="form-control">
+                            <option value="">None</option>
+                            <?php foreach ($universities as $u): ?>
+                                <option value="<?= $u['id'] ?>"><?= $u['name'] ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="row">
+                        <div class="col-sm-6">
+                            <div class="form-group">
+                                <label>Auto-Add Course</label>
+                                <select id="g-crs" class="form-control">
+                                    <option value="">None</option>
+                                    <?php foreach ($allCourses as $c): ?>
+                                        <option value="<?= $c['id'] ?>"><?= $c['sname'] ?> - <?= $c['name'] ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-sm-6">
+                            <div class="form-group">
+                                <label>Auto-Add Semester</label>
+                                <select id="g-sem" class="form-control">
+                                    <option value="">None</option>
+                                    <?php for ($i = 1; $i <= 8; $i++): ?>
+                                        <option value="Sem<?= $i ?>">Sem <?= $i ?></option><?php endfor; ?>
+                                </select>
+                            </div>
                         </div>
                     </div>
-                    <div class="col-sm-6">
-                        <div class="form-group">
-                            <label>Auto-Add Semester</label>
-                            <select id="g-sem" class="form-control">
-                                <option value="">None</option>
-                                <?php for ($i = 1; $i <= 8; $i++): ?>
-                                    <option value="Sem<?= $i ?>">Sem <?= $i ?></option><?php endfor; ?>
-                            </select>
+                </div>
+
+                <div id="g-manual-fields" style="display: none;">
+                    <div class="form-group">
+                        <label>Search Students</label>
+                        <div style="position: relative;">
+                            <i class="fa fa-search" style="position: absolute; left: 15px; top: 12px; color: #94a3b8;"></i>
+                            <input type="text" id="g-student-search" class="form-control" placeholder="Search student by name or roll..." onkeyup="searchGroupStudents()" style="padding-left: 40px;">
+                            <div id="g-search-results" style="margin-top: 5px; max-height: 150px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px; display: none; background: white; position: absolute; width: 100%; z-index: 100; box-shadow: 0 4px 12px rgba(0,0,0,0.1);"></div>
+                        </div>
+                    </div>
+                    <div class="form-group" style="margin-top: 20px;">
+                        <label>Selected Students (<span id="g-selected-count">0</span>)</label>
+                        <div id="g-selected-students" style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 5px; min-height: 40px; padding: 10px; background: #f8fafc; border-radius: 8px; border: 1px dashed #cbd5e1;">
+                            <div class="text-muted" style="font-size: 0.8rem; width: 100%; text-align: center;">No students selected yet</div>
                         </div>
                     </div>
                 </div>
@@ -1341,27 +1628,52 @@ if (file_exists("pages/footer.php")) {
 
     function selectChannel(id, title, event) {
         currentGroupId = id;
-        document.getElementById('active-title').innerText = title;
-        $('.chat-item').removeClass('active');
-        if (event) {
-            $(event.currentTarget).addClass('active');
-        }
+        
+        // Update header icon/avatar
+        const headerIcon = document.getElementById('header-icon');
+        const headerAvatar = document.getElementById('header-avatar');
+        const activeTitle = document.getElementById('active-title');
+        
+        activeTitle.innerHTML = title;
 
         if (id && id.toString().startsWith('SES-')) {
+            headerIcon.className = 'fa fa-university';
+            headerAvatar.style.background = '#fef3c7';
+            headerAvatar.style.color = '#d97706';
             $('#active-subtitle').text("Auto Group (Session Based Broadcast)");
             $('#normal-chat-view').css('display', 'flex');
             $('#broadcast-dashboard-view').hide();
             fetchMessages();
+        } else if (id && id.toString().startsWith('DM-')) {
+            headerIcon.className = 'fa fa-user';
+            headerAvatar.style.background = '#f0fdf4';
+            headerAvatar.style.color = '#16a34a';
+            $('#active-subtitle').text("Direct Message");
+            $('#normal-chat-view').css('display', 'flex');
+            $('#broadcast-dashboard-view').hide();
+            fetchMessages();
         } else if (id) {
-            $('#active-subtitle').text("Group / Direct Message");
+            headerIcon.className = 'fa fa-users';
+            headerAvatar.style.background = '#eff6ff';
+            headerAvatar.style.color = '#3b82f6';
+            activeTitle.innerHTML = title + ' <i class="fa fa-chevron-right" style="font-size: 0.7rem; color: #94a3b8;"></i>';
+            $('#active-subtitle').text("Custom Group Chat • View Info");
             $('#normal-chat-view').css('display', 'flex');
             $('#broadcast-dashboard-view').hide();
             fetchMessages();
         } else {
+            headerIcon.className = 'fa fa-bullhorn';
+            headerAvatar.style.background = '#eff6ff';
+            headerAvatar.style.color = '#3b82f6';
             $('#active-subtitle').text("Select filters to broadcast to specific classes");
             $('#normal-chat-view').hide();
             $('#broadcast-dashboard-view').css('display', 'flex');
             loadBroadcastStudents();
+        }
+
+        $('.chat-item').removeClass('active');
+        if (event) {
+            $(event.currentTarget).addClass('active');
         }
     }
 
@@ -1524,16 +1836,127 @@ if (file_exists("pages/footer.php")) {
             });
     }
 
-    function createGroup() {
+    let selectedGroupStudents = [];
+    let groupMode = 'auto';
+
+    function toggleGroupMode(mode) {
+        groupMode = mode;
+        if (mode === 'auto') {
+            $('#btn-mode-auto').addClass('active');
+            $('#btn-mode-manual').removeClass('active');
+            $('#g-auto-fields').show();
+            $('#g-manual-fields').hide();
+        } else {
+            $('#btn-mode-auto').removeClass('active');
+            $('#btn-mode-manual').addClass('active');
+            $('#g-auto-fields').hide();
+            $('#g-manual-fields').show();
+        }
+    }
+
+    function searchGroupStudents() {
+        const query = $('#g-student-search').val();
+        const results = $('#g-search-results');
+        
+        if (query.length < 2) {
+            results.hide();
+            return;
+        }
+
         const payload = new FormData();
-        payload.append('POST_TYPE', 'CREATE_GROUP');
-        payload.append('group_name', $('#g-name').val());
-        payload.append('university', $('#g-uni').val());
-        payload.append('course', $('#g-crs').val());
-        payload.append('semester', $('#g-sem').val());
+        payload.append('POST_TYPE', 'SEARCH_STUDENTS');
+        payload.append('query', query);
+
         fetch('faculty_portal.php', { method: 'POST', body: payload })
             .then(r => r.json())
-            .then(res => { if (res.error === 0) location.reload(); });
+            .then(res => {
+                results.empty().show();
+                if (res.data.length === 0) {
+                    results.append('<div class="search-item text-muted">No students found</div>');
+                } else {
+                    res.data.forEach(s => {
+                        // Check if already selected
+                        if (selectedGroupStudents.some(st => st.id == s.s_id)) return;
+                        
+                        results.append(`
+                            <div class="search-item" onclick="addGroupStudent(${s.s_id}, '${s.s_name.replace(/'/g, "\\'")}', '${s.s_roll_no}')">
+                                <strong>${s.s_name}</strong> <span class="text-muted">(Roll: ${s.s_roll_no})</span>
+                            </div>
+                        `);
+                    });
+                }
+            });
+    }
+
+    function addGroupStudent(id, name, roll) {
+        if (!selectedGroupStudents.some(s => s.id == id)) {
+            selectedGroupStudents.push({ id, name, roll });
+            renderSelectedGroupStudents();
+        }
+        $('#g-student-search').val('');
+        $('#g-search-results').hide();
+    }
+
+    function removeGroupStudent(id) {
+        selectedGroupStudents = selectedGroupStudents.filter(s => s.id != id);
+        renderSelectedGroupStudents();
+    }
+
+    function renderSelectedGroupStudents() {
+        const container = $('#g-selected-students');
+        const countSpan = $('#g-selected-count');
+        container.empty();
+        countSpan.text(selectedGroupStudents.length);
+
+        if (selectedGroupStudents.length === 0) {
+            container.append('<div class="text-muted" style="font-size: 0.8rem; width: 100%; text-align: center;">No students selected yet</div>');
+            return;
+        }
+
+        selectedGroupStudents.forEach(s => {
+            container.append(`
+                <div class="student-badge">
+                    <span>${s.name}</span>
+                    <i class="fa fa-times-circle" onclick="removeGroupStudent(${s.id})"></i>
+                </div>
+            `);
+        });
+    }
+
+    function createGroup() {
+        const name = $('#g-name').val();
+        if (!name) {
+            alert("Please enter a group name");
+            return;
+        }
+
+        const payload = new FormData();
+        payload.append('POST_TYPE', 'CREATE_GROUP');
+        payload.append('group_name', name);
+        
+        if (groupMode === 'manual') {
+            if (selectedGroupStudents.length === 0) {
+                alert("Please select at least one student");
+                return;
+            }
+            selectedGroupStudents.forEach(s => {
+                payload.append('student_ids[]', s.id);
+            });
+        } else {
+            payload.append('university', $('#g-uni').val());
+            payload.append('course', $('#g-crs').val());
+            payload.append('semester', $('#g-sem').val());
+        }
+
+        fetch('faculty_portal.php', { method: 'POST', body: payload })
+            .then(r => r.json())
+            .then(res => {
+                if (res.error === 0) {
+                    location.reload();
+                } else {
+                    alert(res.message);
+                }
+            });
     }
 
     function renameGroup(id, oldName) {
@@ -1946,6 +2369,103 @@ if (file_exists("pages/footer.php")) {
                     alert(res.message);
                 }
             });
+    };
+
+    window.viewGroupMembers = function(groupId, groupName) {
+        $('#gm-title').text(groupName);
+        $('#group_members_body').html('<div class="text-center" style="padding: 40px;"><i class="fa fa-spinner fa-spin" style="font-size: 2rem; color: #3b82f6;"></i><br><span style="margin-top: 10px; display: block; color: #64748b;">Fetching participants...</span></div>');
+        $('#gm-add-area').show();
+        $('#groupMembersModal').modal('show');
+
+        const payload = new FormData();
+        payload.append('POST_TYPE', 'GET_GROUP_MEMBERS');
+        payload.append('groupId', groupId);
+
+        fetch('faculty_portal.php', { method: 'POST', body: payload })
+            .then(r => r.json())
+            .then(res => {
+                if (res.error === 0) {
+                    let html = '<table class="gm-table"><thead><tr style="color: #64748b; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;"><th style="padding-left: 15px;">Name</th><th>Role</th><th>Info</th><th style="text-align: center;">Action</th></tr></thead><tbody>';
+                    res.data.forEach(m => {
+                        let role = m.role || 'Member';
+                        let isStudent = (role.toLowerCase() === 'student');
+                        let roleClass = isStudent ? 'role-student' : 'role-faculty';
+                        let action = isStudent 
+                            ? `<div class="action-btn" title="Remove Member" onclick="removeMemberFromGroup(${m.student_id}, '${m.name.replace(/'/g, "\\'")}')"><i class="fa fa-user-times"></i></div>`
+                            : '<span style="color: #cbd5e1;">-</span>';
+                        
+                        html += `<tr class="gm-row">
+                            <td style="font-weight: 600; color: #1e293b; font-size: 0.9rem;">${m.name}</td>
+                            <td><span class="role-badge ${roleClass}">${role}</span></td>
+                            <td class="text-muted" style="font-size: 0.85rem;">${m.info}</td>
+                            <td style="display: flex; justify-content: center; border: none; padding-top: 15px;">${action}</td>
+                        </tr>`;
+                    });
+                    html += '</tbody></table>';
+                    $('#group_members_body').html(html);
+                } else {
+                    $('#group_members_body').html(`<div class="alert alert-danger" style="border-radius: 12px;">${res.message}</div>`);
+                }
+            });
+    };
+
+    window.openCurrentGroupMembers = function() {
+        if (!currentGroupId || currentGroupId.toString().startsWith('SES-') || currentGroupId.toString().startsWith('DM-')) return;
+        viewGroupMembers(currentGroupId, document.getElementById('active-title').innerText);
+    };
+
+    window.searchAddMembers = function() {
+        const query = $('#gm-search-input').val();
+        const results = $('#gm-search-results');
+        if (query.length < 2) { results.hide(); return; }
+        const payload = new FormData();
+        payload.append('POST_TYPE', 'SEARCH_STUDENTS');
+        payload.append('query', query);
+        fetch('faculty_portal.php', { method: 'POST', body: payload }).then(r => r.json()).then(res => {
+            results.empty().show();
+            res.data.forEach(s => {
+                results.append(`<div class="search-item" style="padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #f1f5f9;" onclick="addMemberToGroup(${s.s_id})"><strong>${s.s_name}</strong> <span class="text-muted" style="font-size: 0.75rem;">(${s.s_roll_no})</span></div>`);
+            });
+        });
+    };
+
+    window.addMemberToGroup = function(studentId) {
+        const payload = new FormData();
+        payload.append('POST_TYPE', 'ADD_MEMBER');
+        payload.append('groupId', currentGroupId);
+        payload.append('studentId', studentId);
+        fetch('faculty_portal.php', { method: 'POST', body: payload }).then(r => r.json()).then(res => {
+            if (res.error === 0) {
+                $('#gm-search-input').val('');
+                $('#gm-search-results').hide();
+                viewGroupMembers(currentGroupId, document.getElementById('active-title').innerText);
+            } else alert(res.message);
+        });
+    };
+
+    window.removeMemberFromGroup = function(studentId, studentName) {
+        if (confirm(`Remove ${studentName} from this group?`)) {
+            const payload = new FormData();
+            payload.append('POST_TYPE', 'REMOVE_MEMBER');
+            payload.append('groupId', currentGroupId);
+            payload.append('studentId', studentId);
+            fetch('faculty_portal.php', { method: 'POST', body: payload }).then(r => r.json()).then(res => {
+                if (res.error === 0) viewGroupMembers(currentGroupId, document.getElementById('active-title').innerText);
+                else alert(res.message);
+            });
+        }
+    };
+
+    window.deleteGroup = function(groupId, groupName) {
+        if (confirm(`Are you sure you want to delete "${groupName}"?`)) {
+            const payload = new FormData();
+            payload.append('POST_TYPE', 'DELETE_GROUP');
+            payload.append('groupId', groupId);
+            fetch('faculty_portal.php', { method: 'POST', body: payload }).then(r => r.json()).then(res => {
+                if (res.error === 0) location.reload();
+                else alert(res.message);
+            });
+        }
     };
 </script>
 <!-- Assuming external script dependencies exist as requested -->

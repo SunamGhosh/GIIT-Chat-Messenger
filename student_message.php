@@ -148,6 +148,30 @@ if (isset($_GET['ajax'])) {
         echo json_encode(['success' => true, 'max_id' => $row['max_id'] ?: 0]);
         exit;
     }
+    if ($_GET['ajax'] == 'get_group_members') {
+        $g_id = intval($_GET['groupId'] ?? 0);
+        if ($g_id > 0) {
+            $sql = "SELECT gm.user_role, s.s_name, s.s_roll_no 
+                    FROM group_members gm 
+                    LEFT JOIN student s ON gm.user_id = s.s_id AND gm.user_role = 'student'
+                    WHERE gm.group_id = $g_id";
+            $res = $con->query($sql);
+            $members = [];
+            if ($res) {
+                while ($row = $res->fetch_assoc()) {
+                    if ($row['user_role'] === 'student') {
+                        $members[] = ['name' => $row['s_name'], 'role' => 'Student', 'info' => $row['s_roll_no']];
+                    } else {
+                        $members[] = ['name' => 'Faculty Admin', 'role' => ucfirst($row['user_role']), 'info' => '-'];
+                    }
+                }
+            }
+            echo json_encode(['success' => true, 'members' => $members]);
+        } else {
+            echo json_encode(['success' => false, 'error' => 'Invalid Group']);
+        }
+        exit;
+    }
 }
 
 
@@ -483,8 +507,10 @@ include("header.php");
                                 <strong id="active-name">Academic Notices</strong>
                                 <div id="active-meta" class="group-meta">System generated</div>
                             </div>
-                            <button class="btn btn-xs btn-default" onclick="fetchMessages()"><i
-                                    class="fa fa-refresh"></i> Refresh</button>
+                            <div style="display: flex; gap: 5px; align-items: center;">
+                                <button class="btn btn-xs btn-info" id="view-members-btn" style="display:none;" onclick="viewGroupMembers()"><i class="fa fa-users"></i> Members</button>
+                                <button class="btn btn-xs btn-default" onclick="fetchMessages()"><i class="fa fa-refresh"></i> Refresh</button>
+                            </div>
                         </div>
 
                         <div class="messages-container" id="messages-list">
@@ -532,6 +558,14 @@ include("header.php");
         if (badge) {
             badge.innerText = '0';
             activeEl.classList.remove('has-new');
+        }
+
+        // Toggle members button
+        const membersBtn = document.getElementById('view-members-btn');
+        if (id) {
+            membersBtn.style.display = 'inline-block';
+        } else {
+            membersBtn.style.display = 'none';
         }
 
         // Toggle input area
@@ -720,6 +754,50 @@ include("header.php");
 
     // Initial update check to set globalLastMessageId
     setTimeout(checkUpdates, 1000);
+
+    function viewGroupMembers() {
+        if (!currentGroupId) return;
+        const groupName = document.getElementById('active-name').innerText;
+        $('#gm-title').text(groupName);
+        $('#group_members_body').html('<div class="text-center" style="padding: 20px;"><i class="fa fa-spinner fa-spin"></i> Loading members...</div>');
+        $('#groupMembersModal').modal('show');
+
+        fetch(`student_message.php?ajax=get_group_members&groupId=${currentGroupId}`)
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    let html = '<table class="table table-condensed"><thead><tr><th>Name</th><th>Role</th><th>Info</th></tr></thead><tbody>';
+                    data.members.forEach(m => {
+                        html += `<tr>
+                            <td style="font-weight: 600;">${m.name}</td>
+                            <td><span class="label ${m.role === 'Student' ? 'label-info' : 'label-primary'}">${m.role}</span></td>
+                            <td class="text-muted small">${m.info}</td>
+                        </tr>`;
+                    });
+                    html += '</tbody></table>';
+                    $('#group_members_body').html(html);
+                } else {
+                    $('#group_members_body').html(`<div class="alert alert-danger">${data.error}</div>`);
+                }
+            });
+    }
 </script>
+
+<div class="modal fade" id="groupMembersModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+                <h4 class="modal-title"><i class="fa fa-users"></i> Group Members: <span id="gm-title"></span></h4>
+            </div>
+            <div class="modal-body" id="group_members_body" style="max-height: 60vh; overflow-y: auto;">
+                <!-- Members will be loaded here -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
 
 <?php include("footer.php"); ?>
