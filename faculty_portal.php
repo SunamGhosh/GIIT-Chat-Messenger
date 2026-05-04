@@ -49,18 +49,21 @@ if (isset($_POST['POST_TYPE'])) {
         // NEW: If sending to a session (no groupId but filters present), make it a tracked broadcast
         if (empty($groupId) && (!empty($uni) || !empty($session) || !empty($course) || !empty($semester))) {
             $broadcast_id = 'BCT-' . time() . '-' . rand(1000, 9999);
-            
+
             // Build filter query
             $where = ["1=1"];
-            if (!empty($uni)) $where[] = "s_university_id = " . intval($uni);
-            if (!empty($session)) $where[] = "s_session_id = " . intval($session);
-            if (!empty($course)) $where[] = "s_course_id = " . intval($course);
+            if (!empty($uni))
+                $where[] = "s_university_id = " . intval($uni);
+            if (!empty($session))
+                $where[] = "s_session_id = " . intval($session);
+            if (!empty($course))
+                $where[] = "s_course_id = " . intval($course);
             if (!empty($semester)) {
                 $sem_num = intval(str_replace('Sem', '', $semester));
                 $where[] = "s_cur_sem = $sem_num";
             }
             $where_str = implode(' AND ', $where);
-            
+
             $std_query = $con->query("SELECT s_id FROM student WHERE $where_str");
             $success_count = 0;
             if ($std_query) {
@@ -126,7 +129,7 @@ if (isset($_POST['POST_TYPE'])) {
                 (SELECT COUNT(*) FROM messages m2 WHERE m2.groupId = m.groupId AND m.groupId LIKE 'BCT-%') as broadcast_total,
                 (SELECT COUNT(*) FROM messages m3 WHERE m3.groupId = m.groupId AND m3.is_read = 1 AND m.groupId LIKE 'BCT-%') as broadcast_seen
                 FROM messages m LEFT JOIN student s ON m.receiver_id = s.s_id WHERE 1=1";
-        
+
         if (!empty($groupId)) {
             $g = mysqli_real_escape_string($con, $groupId);
             $sql .= " AND m.groupId = '$g'";
@@ -161,7 +164,7 @@ if (isset($_POST['POST_TYPE'])) {
         $sql = "SELECT m.is_read, m.read_at, s.s_name, s.s_roll_no 
                 FROM messages m 
                 JOIN student s ON m.receiver_id = s.s_id";
-        
+
         if ($msg_id > 0) {
             $sql .= " WHERE m.id = $msg_id";
         } else {
@@ -414,12 +417,12 @@ if (isset($_POST['POST_TYPE'])) {
 
                 $stmt = $con->prepare("INSERT INTO messages (sender_id, receiver_id, content, university, session, course, semester, groupId, createdAt) 
                                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())");
-                
+
                 $uni = $std_row['s_university_id'];
                 $sess = $std_row['s_session_id'];
                 $course = $std_row['s_course_id'];
                 $sem = "Sem" . ($std_row['s_cur_sem'] ?? 1);
-                
+
                 $stmt->bind_param("iissssss", $faculty_id, $s_id, $personalized_msg, $uni, $sess, $course, $sem, $broadcast_id);
                 if ($stmt->execute()) {
                     $success_count++;
@@ -972,24 +975,29 @@ if (file_exists("pages/header.php")) {
         border-collapse: separate;
         border-spacing: 0 8px;
     }
+
     .gm-row {
         background: #fff;
         transition: transform 0.2s;
     }
+
     .gm-row td {
         padding: 12px 15px;
         vertical-align: middle;
         border-top: 1px solid #f1f5f9;
         border-bottom: 1px solid #f1f5f9;
     }
+
     .gm-row td:first-child {
         border-left: 1px solid #f1f5f9;
         border-radius: 10px 0 0 10px;
     }
+
     .gm-row td:last-child {
         border-right: 1px solid #f1f5f9;
         border-radius: 0 10px 10px 0;
     }
+
     .role-badge {
         padding: 4px 10px;
         border-radius: 20px;
@@ -998,8 +1006,16 @@ if (file_exists("pages/header.php")) {
         text-transform: uppercase;
         display: inline-block;
     }
-    .role-student { background: #eff6ff; color: #3b82f6; }
-    .role-faculty { background: #fff7ed; color: #ea580c; }
+
+    .role-student {
+        background: #eff6ff;
+        color: #3b82f6;
+    }
+
+    .role-faculty {
+        background: #fff7ed;
+        color: #ea580c;
+    }
 
     .action-btn {
         width: 32px;
@@ -1014,6 +1030,7 @@ if (file_exists("pages/header.php")) {
         color: #ef4444;
         background: #fff;
     }
+
     .action-btn:hover {
         background: #ef4444;
         color: #fff;
@@ -1088,20 +1105,27 @@ if (file_exists("pages/header.php")) {
                     </div>
                 </div>
                 <!-- Auto Session Groups -->
-                <div class="sidebar-section-label" style="padding: 12px 20px 5px; font-size: 0.7rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; border-top: 1px solid #f1f5f9; margin-top: 10px;">University Sessions</div>
+                <div class="sidebar-section-label"
+                    style="padding: 12px 20px 5px; font-size: 0.7rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; border-top: 1px solid #f1f5f9; margin-top: 10px;">
+                    University Sessions</div>
                 <?php foreach ($allSessions as $s): ?>
-                    <div class="chat-item" onclick="selectChannel('SES-<?= $s['id'] ?>', 'Session: <?= addslashes($s['name']) ?> (<?= addslashes($s['uni_short'] ?? '') ?>)', event)">
+                    <div class="chat-item"
+                        onclick="selectChannel('SES-<?= $s['id'] ?>', 'Session: <?= addslashes($s['name']) ?> (<?= addslashes($s['uni_short'] ?? '') ?>)', event)">
                         <div style="display: flex; align-items: center;">
-                            <div class="chat-item-icon" style="background-color: #f0fdf4; color: #16a34a;"><i class="fa fa-calendar"></i></div>
+                            <div class="chat-item-icon" style="background-color: #f0fdf4; color: #16a34a;"><i
+                                    class="fa fa-calendar"></i></div>
                             <div class="chat-item-content">
-                                <div class="chat-item-title"><?= htmlspecialchars($s['name']) ?> (<?= htmlspecialchars($s['uni_short'] ?? '') ?>)</div>
+                                <div class="chat-item-title"><?= htmlspecialchars($s['name']) ?>
+                                    (<?= htmlspecialchars($s['uni_short'] ?? '') ?>)</div>
                                 <div class="chat-item-subtitle">Auto-Group</div>
                             </div>
                         </div>
                     </div>
                 <?php endforeach; ?>
 
-                <div class="sidebar-section-label" style="padding: 12px 20px 5px; font-size: 0.7rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; border-top: 1px solid #f1f5f9; margin-top: 10px;">Custom Groups</div>
+                <div class="sidebar-section-label"
+                    style="padding: 12px 20px 5px; font-size: 0.7rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; border-top: 1px solid #f1f5f9; margin-top: 10px;">
+                    Custom Groups</div>
                 <?php foreach ($groups as $g): ?>
                     <div class="chat-item"
                         onclick="selectChannel(<?= $g['id'] ?>, '<?= addslashes($g['group_name']) ?>', event)">
@@ -1139,23 +1163,28 @@ if (file_exists("pages/header.php")) {
 
         <!-- Main Area -->
         <div class="chat-main">
-            <div class="chat-header" style="padding: 10px 20px; border-bottom: 1px solid #e2e8f0; background: #fff; display: flex; align-items: center; justify-content: space-between;">
-                <div style="display: flex; align-items: center; cursor: pointer; flex: 1; padding: 5px; border-radius: 8px; transition: background 0.2s;" 
-                     onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='transparent'"
-                     onclick="openCurrentGroupMembers()" title="View Group Details">
-                    <div id="header-avatar" style="width: 42px; height: 42px; border-radius: 12px; background: #eff6ff; color: #3b82f6; display: flex; align-items: center; justify-content: center; margin-right: 15px; font-size: 1.2rem; box-shadow: 0 2px 4px rgba(59, 130, 246, 0.1);">
+            <div class="chat-header"
+                style="padding: 10px 20px; border-bottom: 1px solid #e2e8f0; background: #fff; display: flex; align-items: center; justify-content: space-between;">
+                <div style="display: flex; align-items: center; cursor: pointer; flex: 1; padding: 5px; border-radius: 8px; transition: background 0.2s;"
+                    onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='transparent'"
+                    onclick="openCurrentGroupMembers()" title="View Group Details">
+                    <div id="header-avatar"
+                        style="width: 42px; height: 42px; border-radius: 12px; background: #eff6ff; color: #3b82f6; display: flex; align-items: center; justify-content: center; margin-right: 15px; font-size: 1.2rem; box-shadow: 0 2px 4px rgba(59, 130, 246, 0.1);">
                         <i class="fa fa-bullhorn" id="header-icon"></i>
                     </div>
                     <div>
-                        <h4 id="active-title" style="margin: 0; font-size: 1.1rem; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 8px;">
+                        <h4 id="active-title"
+                            style="margin: 0; font-size: 1.1rem; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 8px;">
                             Academic Broadcast
                             <i class="fa fa-chevron-right" style="font-size: 0.7rem; color: #94a3b8;"></i>
                         </h4>
-                        <div class="text-muted" id="active-subtitle" style="font-size: 0.8rem; margin-top: 2px;">Select filters to broadcast to specific classes</div>
+                        <div class="text-muted" id="active-subtitle" style="font-size: 0.8rem; margin-top: 2px;">Select
+                            filters to broadcast to specific classes</div>
                     </div>
                 </div>
                 <div class="header-actions">
-                    <div class="header-btn" style="background: #f1f5f9; color: #64748b;" onclick="openCurrentGroupMembers()">
+                    <div class="header-btn" style="background: #f1f5f9; color: #64748b;"
+                        onclick="openCurrentGroupMembers()">
                         <i class="fa fa-info-circle"></i>
                     </div>
                 </div>
@@ -1407,14 +1436,16 @@ if (file_exists("pages/header.php")) {
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <button type="button" class="close" data-dismiss="modal" onclick="$('#broadcastStatsModal').modal('hide')">&times;</button>
+                <button type="button" class="close" data-dismiss="modal"
+                    onclick="$('#broadcastStatsModal').modal('hide')">&times;</button>
                 <h4 class="modal-title"><i class="fa fa-bar-chart"></i> Broadcast Read Receipts</h4>
             </div>
             <div class="modal-body" id="broadcast_stats_body" style="max-height: 60vh; overflow-y: auto;">
                 <!-- Stats will be loaded here -->
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-default" data-dismiss="modal" onclick="$('#broadcastStatsModal').modal('hide')">Close</button>
+                <button type="button" class="btn btn-default" data-dismiss="modal"
+                    onclick="$('#broadcastStatsModal').modal('hide')">Close</button>
             </div>
         </div>
     </div>
@@ -1424,16 +1455,23 @@ if (file_exists("pages/header.php")) {
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <button type="button" class="close" data-dismiss="modal" onclick="$('#groupMembersModal').modal('hide')">&times;</button>
+                <button type="button" class="close" data-dismiss="modal"
+                    onclick="$('#groupMembersModal').modal('hide')">&times;</button>
                 <h4 class="modal-title"><i class="fa fa-users"></i> Group Members: <span id="gm-title"></span></h4>
             </div>
             <div class="modal-body">
-                <div id="gm-add-area" style="margin-bottom: 15px; border-bottom: 1px solid #f1f5f9; padding-bottom: 15px; display: none;">
+                <div id="gm-add-area"
+                    style="margin-bottom: 15px; border-bottom: 1px solid #f1f5f9; padding-bottom: 15px; display: none;">
                     <label style="font-size: 0.8rem; color: #64748b; margin-bottom: 8px;">Add New Member</label>
                     <div style="position: relative;">
-                        <i class="fa fa-search" style="position: absolute; left: 12px; top: 10px; color: #94a3b8; font-size: 0.9rem;"></i>
-                        <input type="text" id="gm-search-input" class="form-control input-sm" placeholder="Search student name..." onkeyup="searchAddMembers()" style="padding-left: 35px; border-radius: 20px;">
-                        <div id="gm-search-results" style="position: absolute; width: 100%; background: white; z-index: 1000; border: 1px solid #e2e8f0; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); margin-top: 5px; display: none; max-height: 200px; overflow-y: auto;"></div>
+                        <i class="fa fa-search"
+                            style="position: absolute; left: 12px; top: 10px; color: #94a3b8; font-size: 0.9rem;"></i>
+                        <input type="text" id="gm-search-input" class="form-control input-sm"
+                            placeholder="Search student name..." onkeyup="searchAddMembers()"
+                            style="padding-left: 35px; border-radius: 20px;">
+                        <div id="gm-search-results"
+                            style="position: absolute; width: 100%; background: white; z-index: 1000; border: 1px solid #e2e8f0; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); margin-top: 5px; display: none; max-height: 200px; overflow-y: auto;">
+                        </div>
                     </div>
                 </div>
                 <div id="group_members_body" style="max-height: 50vh; overflow-y: auto;">
@@ -1441,7 +1479,8 @@ if (file_exists("pages/header.php")) {
                 </div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-default" data-dismiss="modal" onclick="$('#groupMembersModal').modal('hide')">Close</button>
+                <button type="button" class="btn btn-default" data-dismiss="modal"
+                    onclick="$('#groupMembersModal').modal('hide')">Close</button>
             </div>
         </div>
     </div>
@@ -1451,7 +1490,8 @@ if (file_exists("pages/header.php")) {
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <button type="button" class="close" data-dismiss="modal" onclick="$('#dmModal').modal('hide')">&times;</button>
+                <button type="button" class="close" data-dismiss="modal"
+                    onclick="$('#dmModal').modal('hide')">&times;</button>
                 <h4 class="modal-title">New Direct Message</h4>
             </div>
             <div class="modal-body">
@@ -1476,7 +1516,8 @@ if (file_exists("pages/header.php")) {
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <button type="button" class="close" data-dismiss="modal" onclick="$('#groupModal').modal('hide')">&times;</button>
+                <button type="button" class="close" data-dismiss="modal"
+                    onclick="$('#groupModal').modal('hide')">&times;</button>
                 <h4 class="modal-title">Create New Group</h4>
             </div>
             <div class="modal-body">
@@ -1488,8 +1529,10 @@ if (file_exists("pages/header.php")) {
                 <div class="form-group">
                     <label>Selection Mode</label>
                     <div style="display: flex;">
-                        <div id="btn-mode-auto" class="g-mode-btn active" onclick="toggleGroupMode('auto')">Auto (Filters)</div>
-                        <div id="btn-mode-manual" class="g-mode-btn" onclick="toggleGroupMode('manual')">Manual (Select)</div>
+                        <div id="btn-mode-auto" class="g-mode-btn active" onclick="toggleGroupMode('auto')">Auto
+                            (Filters)</div>
+                        <div id="btn-mode-manual" class="g-mode-btn" onclick="toggleGroupMode('manual')">Manual (Select)
+                        </div>
                     </div>
                 </div>
 
@@ -1532,32 +1575,41 @@ if (file_exists("pages/header.php")) {
                     <div class="form-group">
                         <label>Search Students</label>
                         <div style="position: relative;">
-                            <i class="fa fa-search" style="position: absolute; left: 15px; top: 12px; color: #94a3b8;"></i>
-                            <input type="text" id="g-student-search" class="form-control" placeholder="Search student by name or roll..." onkeyup="searchGroupStudents()" style="padding-left: 40px;">
-                            <div id="g-search-results" style="margin-top: 5px; max-height: 150px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px; display: none; background: white; position: absolute; width: 100%; z-index: 100; box-shadow: 0 4px 12px rgba(0,0,0,0.1);"></div>
+                            <i class="fa fa-search"
+                                style="position: absolute; left: 15px; top: 12px; color: #94a3b8;"></i>
+                            <input type="text" id="g-student-search" class="form-control"
+                                placeholder="Search student by name or roll..." onkeyup="searchGroupStudents()"
+                                style="padding-left: 40px;">
+                            <div id="g-search-results"
+                                style="margin-top: 5px; max-height: 150px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px; display: none; background: white; position: absolute; width: 100%; z-index: 100; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+                            </div>
                         </div>
                     </div>
                     <div class="form-group" style="margin-top: 20px;">
                         <label>Selected Students (<span id="g-selected-count">0</span>)</label>
-                        <div id="g-selected-students" style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 5px; min-height: 40px; padding: 10px; background: #f8fafc; border-radius: 8px; border: 1px dashed #cbd5e1;">
-                            <div class="text-muted" style="font-size: 0.8rem; width: 100%; text-align: center;">No students selected yet</div>
+                        <div id="g-selected-students"
+                            style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 5px; min-height: 40px; padding: 10px; background: #f8fafc; border-radius: 8px; border: 1px dashed #cbd5e1;">
+                            <div class="text-muted" style="font-size: 0.8rem; width: 100%; text-align: center;">No
+                                students selected yet</div>
                         </div>
                     </div>
                 </div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-default" data-dismiss="modal" onclick="$('#groupModal').modal('hide')">Cancel</button>
+                <button type="button" class="btn btn-default" data-dismiss="modal"
+                    onclick="$('#groupModal').modal('hide')">Cancel</button>
                 <button type="button" class="btn btn-primary" onclick="createGroup()">Create Group</button>
             </div>
         </div>
     </div>
 </div>
-
+<!-- modal added -->
 <div class="modal fade custom-modal" id="previewModel" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <button type="button" class="close" data-dismiss="modal" onclick="$('#previewModel').modal('hide')">&times;</button>
+                <button type="button" class="close" data-dismiss="modal"
+                    onclick="$('#previewModel').modal('hide')">&times;</button>
                 <h4 class="modal-title"><i class="fa fa-eye fa-beat-fade"></i> Preview Messages</h4>
             </div>
             <div class="modal-body" id="preview_msg" style="max-height: 60vh; overflow-y: auto;">
@@ -1628,12 +1680,12 @@ if (file_exists("pages/footer.php")) {
 
     function selectChannel(id, title, event) {
         currentGroupId = id;
-        
+
         // Update header icon/avatar
         const headerIcon = document.getElementById('header-icon');
         const headerAvatar = document.getElementById('header-avatar');
         const activeTitle = document.getElementById('active-title');
-        
+
         activeTitle.innerHTML = title;
 
         if (id && id.toString().startsWith('SES-')) {
@@ -1739,7 +1791,7 @@ if (file_exists("pages/footer.php")) {
                                         </div>
                                     `;
                                 } else if (msg.receiver_id) {
-                                    readStatus = msg.is_read == 1 
+                                    readStatus = msg.is_read == 1
                                         ? `<span style="background: #4ade80; color: #0f172a; font-weight: 700; padding: 3px 10px; border-radius: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.15); cursor: pointer;" title="Read at ${msg.read_at}" onclick="viewBroadcastStats(null, ${msg.id})"><i class="fa fa-check-circle"></i> Seen</span>`
                                         : `<span style="background: rgba(255,255,255,0.25); color: #fff; font-weight: 600; padding: 3px 10px; border-radius: 20px;" title="Unread"><i class="fa fa-check"></i> Sent</span>`;
                                 }
@@ -1857,7 +1909,7 @@ if (file_exists("pages/footer.php")) {
     function searchGroupStudents() {
         const query = $('#g-student-search').val();
         const results = $('#g-search-results');
-        
+
         if (query.length < 2) {
             results.hide();
             return;
@@ -1877,7 +1929,7 @@ if (file_exists("pages/footer.php")) {
                     res.data.forEach(s => {
                         // Check if already selected
                         if (selectedGroupStudents.some(st => st.id == s.s_id)) return;
-                        
+
                         results.append(`
                             <div class="search-item" onclick="addGroupStudent(${s.s_id}, '${s.s_name.replace(/'/g, "\\'")}', '${s.s_roll_no}')">
                                 <strong>${s.s_name}</strong> <span class="text-muted">(Roll: ${s.s_roll_no})</span>
@@ -1933,7 +1985,7 @@ if (file_exists("pages/footer.php")) {
         const payload = new FormData();
         payload.append('POST_TYPE', 'CREATE_GROUP');
         payload.append('group_name', name);
-        
+
         if (groupMode === 'manual') {
             if (selectedGroupStudents.length === 0) {
                 alert("Please select at least one student");
@@ -2342,7 +2394,7 @@ if (file_exists("pages/footer.php")) {
         }
     };
 
-    window.viewBroadcastStats = function(broadcastId, msgId = null) {
+    window.viewBroadcastStats = function (broadcastId, msgId = null) {
         const payload = new FormData();
         payload.append('POST_TYPE', 'GET_BROADCAST_STATS');
         if (msgId) {
@@ -2350,14 +2402,14 @@ if (file_exists("pages/footer.php")) {
         } else {
             payload.append('broadcast_id', broadcastId);
         }
-        
+
         fetch('faculty_portal.php', { method: 'POST', body: payload })
             .then(r => r.json())
             .then(res => {
                 if (res.error === 0) {
                     let html = '<table class="table table-condensed table-hover"><thead><tr><th>Student</th><th>Roll No</th><th>Status</th></tr></thead><tbody>';
                     res.data.forEach(s => {
-                        const status = s.is_read == 1 
+                        const status = s.is_read == 1
                             ? `<span class="text-success" style="font-weight: 600;"><i class="fa fa-check-circle"></i> Seen at ${s.read_at}</span>`
                             : `<span class="text-muted"><i class="fa fa-check"></i> Unread</span>`;
                         html += `<tr><td>${s.s_name}</td><td>${s.s_roll_no}</td><td>${status}</td></tr>`;
@@ -2371,7 +2423,7 @@ if (file_exists("pages/footer.php")) {
             });
     };
 
-    window.viewGroupMembers = function(groupId, groupName) {
+    window.viewGroupMembers = function (groupId, groupName) {
         $('#gm-title').text(groupName);
         $('#group_members_body').html('<div class="text-center" style="padding: 40px;"><i class="fa fa-spinner fa-spin" style="font-size: 2rem; color: #3b82f6;"></i><br><span style="margin-top: 10px; display: block; color: #64748b;">Fetching participants...</span></div>');
         $('#gm-add-area').show();
@@ -2390,10 +2442,10 @@ if (file_exists("pages/footer.php")) {
                         let role = m.role || 'Member';
                         let isStudent = (role.toLowerCase() === 'student');
                         let roleClass = isStudent ? 'role-student' : 'role-faculty';
-                        let action = isStudent 
+                        let action = isStudent
                             ? `<div class="action-btn" title="Remove Member" onclick="removeMemberFromGroup(${m.student_id}, '${m.name.replace(/'/g, "\\'")}')"><i class="fa fa-user-times"></i></div>`
                             : '<span style="color: #cbd5e1;">-</span>';
-                        
+
                         html += `<tr class="gm-row">
                             <td style="font-weight: 600; color: #1e293b; font-size: 0.9rem;">${m.name}</td>
                             <td><span class="role-badge ${roleClass}">${role}</span></td>
@@ -2409,12 +2461,12 @@ if (file_exists("pages/footer.php")) {
             });
     };
 
-    window.openCurrentGroupMembers = function() {
+    window.openCurrentGroupMembers = function () {
         if (!currentGroupId || currentGroupId.toString().startsWith('SES-') || currentGroupId.toString().startsWith('DM-')) return;
         viewGroupMembers(currentGroupId, document.getElementById('active-title').innerText);
     };
 
-    window.searchAddMembers = function() {
+    window.searchAddMembers = function () {
         const query = $('#gm-search-input').val();
         const results = $('#gm-search-results');
         if (query.length < 2) { results.hide(); return; }
@@ -2429,7 +2481,7 @@ if (file_exists("pages/footer.php")) {
         });
     };
 
-    window.addMemberToGroup = function(studentId) {
+    window.addMemberToGroup = function (studentId) {
         const payload = new FormData();
         payload.append('POST_TYPE', 'ADD_MEMBER');
         payload.append('groupId', currentGroupId);
@@ -2443,7 +2495,7 @@ if (file_exists("pages/footer.php")) {
         });
     };
 
-    window.removeMemberFromGroup = function(studentId, studentName) {
+    window.removeMemberFromGroup = function (studentId, studentName) {
         if (confirm(`Remove ${studentName} from this group?`)) {
             const payload = new FormData();
             payload.append('POST_TYPE', 'REMOVE_MEMBER');
@@ -2456,7 +2508,7 @@ if (file_exists("pages/footer.php")) {
         }
     };
 
-    window.deleteGroup = function(groupId, groupName) {
+    window.deleteGroup = function (groupId, groupName) {
         if (confirm(`Are you sure you want to delete "${groupName}"?`)) {
             const payload = new FormData();
             payload.append('POST_TYPE', 'DELETE_GROUP');
