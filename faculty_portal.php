@@ -1407,14 +1407,14 @@ if (file_exists("pages/header.php")) {
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <button type="button" class="close" data-dismiss="modal">&times;</button>
+                <button type="button" class="close" data-dismiss="modal" onclick="$('#broadcastStatsModal').modal('hide')">&times;</button>
                 <h4 class="modal-title"><i class="fa fa-bar-chart"></i> Broadcast Read Receipts</h4>
             </div>
             <div class="modal-body" id="broadcast_stats_body" style="max-height: 60vh; overflow-y: auto;">
                 <!-- Stats will be loaded here -->
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-default" data-dismiss="modal" onclick="$('#broadcastStatsModal').modal('hide')">Close</button>
             </div>
         </div>
     </div>
@@ -1424,7 +1424,7 @@ if (file_exists("pages/header.php")) {
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <button type="button" class="close" data-dismiss="modal">&times;</button>
+                <button type="button" class="close" data-dismiss="modal" onclick="$('#groupMembersModal').modal('hide')">&times;</button>
                 <h4 class="modal-title"><i class="fa fa-users"></i> Group Members: <span id="gm-title"></span></h4>
             </div>
             <div class="modal-body">
@@ -1441,7 +1441,7 @@ if (file_exists("pages/header.php")) {
                 </div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-default" data-dismiss="modal" onclick="$('#groupMembersModal').modal('hide')">Close</button>
             </div>
         </div>
     </div>
@@ -1451,7 +1451,7 @@ if (file_exists("pages/header.php")) {
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <button type="button" class="close" data-dismiss="modal">&times;</button>
+                <button type="button" class="close" data-dismiss="modal" onclick="$('#dmModal').modal('hide')">&times;</button>
                 <h4 class="modal-title">New Direct Message</h4>
             </div>
             <div class="modal-body">
@@ -1476,7 +1476,7 @@ if (file_exists("pages/header.php")) {
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <button type="button" class="close" data-dismiss="modal">&times;</button>
+                <button type="button" class="close" data-dismiss="modal" onclick="$('#groupModal').modal('hide')">&times;</button>
                 <h4 class="modal-title">Create New Group</h4>
             </div>
             <div class="modal-body">
@@ -1546,7 +1546,7 @@ if (file_exists("pages/header.php")) {
                 </div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-default" data-dismiss="modal" onclick="$('#groupModal').modal('hide')">Cancel</button>
                 <button type="button" class="btn btn-primary" onclick="createGroup()">Create Group</button>
             </div>
         </div>
@@ -1557,7 +1557,7 @@ if (file_exists("pages/header.php")) {
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <button type="button" class="close" data-dismiss="modal">&times;</button>
+                <button type="button" class="close" data-dismiss="modal" onclick="$('#previewModel').modal('hide')">&times;</button>
                 <h4 class="modal-title"><i class="fa fa-eye fa-beat-fade"></i> Preview Messages</h4>
             </div>
             <div class="modal-body" id="preview_msg" style="max-height: 60vh; overflow-y: auto;">

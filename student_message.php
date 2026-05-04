@@ -787,14 +787,14 @@ include("header.php");
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <button type="button" class="close" data-dismiss="modal">&times;</button>
+                <button type="button" class="close" data-dismiss="modal" onclick="$('#groupMembersModal').modal('hide')">&times;</button>
                 <h4 class="modal-title"><i class="fa fa-users"></i> Group Members: <span id="gm-title"></span></h4>
             </div>
             <div class="modal-body" id="group_members_body" style="max-height: 60vh; overflow-y: auto;">
                 <!-- Members will be loaded here -->
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-default" data-dismiss="modal" onclick="$('#groupMembersModal').modal('hide')">Close</button>
             </div>
         </div>
     </div>
