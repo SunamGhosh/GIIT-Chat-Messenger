@@ -66,7 +66,7 @@ if (isset($_POST['POST_TYPE'])) {
 
             // Fetch exclusions for this session if it's a session-based broadcast
             $exclusion_key = !empty($session) ? "SES-" . $session : "GLOBAL";
-            
+
             $std_query = $con->query("SELECT s_id FROM student WHERE $where_str AND s_id NOT IN (SELECT student_id FROM chat_group_exclusions WHERE group_key = '$exclusion_key')");
             $success_count = 0;
             if ($std_query) {
@@ -450,7 +450,8 @@ if (isset($_POST['POST_TYPE'])) {
         $res = $con->query($sql);
         $data = [];
         if ($res) {
-            while ($row = $res->fetch_assoc()) $data[] = $row;
+            while ($row = $res->fetch_assoc())
+                $data[] = $row;
         }
         echo json_encode(['error' => 0, 'data' => $data]);
         exit;
@@ -460,7 +461,7 @@ if (isset($_POST['POST_TYPE'])) {
         $session_id = intval($_POST['session_id'] ?? 0);
         $course_id = intval($_POST['course_id'] ?? 0);
         $exclusion_key = "SES-" . $session_id;
-        
+
         $sql = "SELECT s_id, s_name, s_roll_no FROM student 
                 WHERE s_session_id = $session_id AND s_course_id = $course_id 
                 AND s_id NOT IN (SELECT student_id FROM chat_group_exclusions WHERE group_key = '$exclusion_key')
@@ -468,7 +469,8 @@ if (isset($_POST['POST_TYPE'])) {
         $res = $con->query($sql);
         $data = [];
         if ($res) {
-            while ($row = $res->fetch_assoc()) $data[] = $row;
+            while ($row = $res->fetch_assoc())
+                $data[] = $row;
         }
         echo json_encode(['error' => 0, 'data' => $data]);
         exit;
@@ -477,7 +479,7 @@ if (isset($_POST['POST_TYPE'])) {
     if ($type === 'REMOVE_FROM_AUTO_GROUP') {
         $s_id = intval($_POST['student_id'] ?? 0);
         $session_id = intval($_POST['session_id'] ?? 0);
-        
+
         if ($s_id > 0 && $session_id > 0) {
             // Fetch student name and roll for logging
             $std_info = $con->query("SELECT s_name, s_roll_no FROM student WHERE s_id = $s_id")->fetch_assoc();
@@ -1162,72 +1164,41 @@ if (file_exists("pages/header.php")) {
         box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
     }
 
-    .course-badge.blue { background: #eff6ff; color: #3b82f6; border-color: #bfdbfe; }
-    .course-badge.green { background: #f0fdf4; color: #16a34a; border-color: #bbf7d0; }
-    .course-badge.purple { background: #faf5ff; color: #9333ea; border-color: #e9d5ff; }
-    .course-badge.orange { background: #fff7ed; color: #ea580c; border-color: #fed7aa; }
-    .course-badge.red { background: #fef2f2; color: #ef4444; border-color: #fecaca; }
+    .course-badge.blue {
+        background: #eff6ff;
+        color: #3b82f6;
+        border-color: #bfdbfe;
+    }
+
+    .course-badge.green {
+        background: #f0fdf4;
+        color: #16a34a;
+        border-color: #bbf7d0;
+    }
+
+    .course-badge.purple {
+        background: #faf5ff;
+        color: #9333ea;
+        border-color: #e9d5ff;
+    }
+
+    .course-badge.orange {
+        background: #fff7ed;
+        color: #ea580c;
+        border-color: #fed7aa;
+    }
+
+    .course-badge.red {
+        background: #fef2f2;
+        color: #ef4444;
+        border-color: #fecaca;
+    }
 
     .student-count {
         background: rgba(255, 255, 255, 0.8);
         padding: 1px 6px;
         border-radius: 10px;
         font-size: 0.65rem;
-    }
-
-    /* WhatsApp Style Preview */
-    .whatsapp-preview-container {
-        background-color: #e5ddd5;
-        background-image: url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png');
-        padding: 30px 20px;
-        border-radius: 12px;
-        min-height: 200px;
-    }
-
-    .whatsapp-bubble {
-        background: #fff;
-        padding: 12px 16px;
-        border-radius: 0 12px 12px 12px;
-        box-shadow: 0 1px 0.5px rgba(0,0,0,0.13);
-        max-width: 90%;
-        position: relative;
-        font-size: 1rem;
-        line-height: 1.5;
-        color: #111b21;
-        margin-bottom: 5px;
-    }
-
-    .whatsapp-bubble::before {
-        content: "";
-        position: absolute;
-        left: -10px;
-        top: 0;
-        width: 0;
-        height: 0;
-        border-top: 0px solid transparent;
-        border-bottom: 15px solid transparent;
-        border-right: 15px solid #fff;
-    }
-
-    .whatsapp-bubble textarea, 
-    .whatsapp-bubble input {
-        border: none !important;
-        background: transparent !important;
-        width: 100% !important;
-        padding: 0 !important;
-        margin: 0 !important;
-        resize: none !important;
-        outline: none !important;
-        font-family: inherit !important;
-        font-size: 1.05rem !important;
-        color: inherit !important;
-    }
-
-    .preview-footer-info {
-        font-size: 0.7rem;
-        color: #667781;
-        text-align: right;
-        margin-top: 4px;
     }
 </style>
 
@@ -1258,7 +1229,8 @@ if (file_exists("pages/header.php")) {
                 </div>
                 <div class="sidebar-section-label"
                     style="padding: 12px 20px 5px; font-size: 0.7rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; border-top: 1px solid #f1f5f9; margin-top: 10px;">
-                    Custom Groups</div>
+                    <b>Groups Made by Admin</b>
+                </div>
                 <?php foreach ($groups as $g): ?>
                     <div class="chat-item"
                         onclick="selectChannel(<?= $g['id'] ?>, '<?= addslashes($g['group_name']) ?>', event)">
@@ -1331,7 +1303,8 @@ if (file_exists("pages/header.php")) {
                         </h4>
                         <div class="text-muted" id="active-subtitle" style="font-size: 0.8rem; margin-top: 2px;">Select
                             filters to broadcast to specific classes</div>
-                        <div id="course-buttons-container" style="display: flex; flex-wrap: wrap; margin-top: 8px;"></div>
+                        <div id="course-buttons-container" style="display: flex; flex-wrap: wrap; margin-top: 8px;">
+                        </div>
                     </div>
                 </div>
                 <div class="header-actions">
@@ -1758,12 +1731,12 @@ if (file_exists("pages/header.php")) {
 <div class="modal fade custom-modal" id="previewModel" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
-            <div class="modal-header" style="background: #075e54; color: white; border-bottom: none;">
+            <div class="modal-header">
                 <button type="button" class="close" data-dismiss="modal"
-                    onclick="$('#previewModel').modal('hide')" style="color: white; opacity: 1;">&times;</button>
-                <h4 class="modal-title" style="color: white;"><i class="fa fa-whatsapp"></i> Message Preview</h4>
+                    onclick="$('#previewModel').modal('hide')">&times;</button>
+                <h4 class="modal-title"><i class="fa fa-eye fa-beat-fade"></i> Preview Messages</h4>
             </div>
-            <div class="modal-body" id="preview_msg" style="max-height: 60vh; overflow-y: auto; padding: 0;">
+            <div class="modal-body" id="preview_msg" style="max-height: 60vh; overflow-y: auto;">
                 <!-- Preview message content will be loaded here -->
             </div>
             <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center;">
@@ -1790,7 +1763,8 @@ if (file_exists("pages/header.php")) {
                 <button type="button" class="close" data-dismiss="modal"
                     onclick="$('#courseStudentsModal').modal('hide')">&times;</button>
                 <h4 class="modal-title"><i class="fa fa-users"></i> Students in <span id="cs-course-name"></span></h4>
-                <p class="text-muted" style="margin:0; font-size: 0.8rem;">Session: <span id="cs-session-name"></span></p>
+                <p class="text-muted" style="margin:0; font-size: 0.8rem;">Session: <span id="cs-session-name"></span>
+                </p>
             </div>
             <div class="modal-body">
                 <div id="cs-loading" class="text-center" style="display: none;">
@@ -1999,7 +1973,7 @@ if (file_exists("pages/footer.php")) {
             .then(r => r.json())
             .then(res => {
                 if (res.error === 0) {
-                    $(btn).closest('tr').fadeOut(300, function() { $(this).remove(); });
+                    $(btn).closest('tr').fadeOut(300, function () { $(this).remove(); });
                     // Optionally refresh the counts in the header
                     // We can just re-select the channel to update counts
                     const currentId = currentGroupId;
@@ -2571,30 +2545,19 @@ if (file_exists("pages/footer.php")) {
                 totalCheckboxes: totalCheckboxes
             },
             success: function (data) {
-                let wrappedData = `
-                    <div class="whatsapp-preview-container">
-                        <div class="whatsapp-bubble">
-                            ${data}
-                            <div class="preview-footer-info">${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} <i class="fa fa-check" style="color: #53bdeb;"></i><i class="fa fa-check" style="color: #53bdeb; margin-left: -8px;"></i></div>
-                        </div>
-                    </div>
-                `;
-                $('#preview_msg').html(wrappedData);
+                $('#preview_msg').html(data);
                 $('#previewModel').modal('show');
             },
             error: function () {
                 // Fallback basic preview
-                let wrappedFallback = `
-                    <div class="whatsapp-preview-container">
-                        <div class="whatsapp-bubble">
-                            <strong>Broadcast Template</strong><br>
-                            ${template}
-                            <div class="preview-footer-info" style="margin-top: 10px; font-weight: 600;">To: ${totalCheckboxes} Students</div>
-                            <div class="preview-footer-info">${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} <i class="fa fa-check"></i></div>
-                        </div>
+                $('#preview_msg').html(`
+                    <div class="alert alert-info">
+                        <strong>Preview Mode (Fallback)</strong><br>
+                        Template: ${template}<br>
+                        Contacts: ${selectContact.join(', ')}<br>
+                        Students Selected: ${totalCheckboxes}
                     </div>
-                `;
-                $('#preview_msg').html(wrappedFallback);
+                `);
                 $('#previewModel').modal('show');
             }
         });
