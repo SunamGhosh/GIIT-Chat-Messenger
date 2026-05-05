@@ -517,6 +517,22 @@ if ($s_roll !== '') {
         border-radius: 8px;
     }
 
+    /* Hide Site Header on Dashboard */
+    .header1,
+    .header3,
+    #mu-menu {
+        display: none !important;
+    }
+
+    body {
+        padding-top: 0 !important;
+    }
+
+    #mainContainer {
+        margin-top: 20px;
+    }
+
+
     /* Notification Toast Styles */
     .custom-toast {
         position: fixed;
@@ -1080,10 +1096,10 @@ if ($s_roll !== '') {
         // Use student ID for personalized storage
         const studentId = <?= $_SESSION['s_id'] ?>;
         const storageKey = 'giitchat_last_read_id_' + studentId;
-        
+
         // Try to get last read ID from localStorage, else fetch from server
         const savedId = localStorage.getItem(storageKey);
-        
+
         if (savedId) {
             lastChatId = parseInt(savedId);
             // Start Polling immediately if we have a baseline
@@ -1137,10 +1153,10 @@ if ($s_roll !== '') {
             .then(data => {
                 if (data.success && data.new_message) {
                     const msg = data.new_message;
-                    
+
                     // Prevent duplicate notifications if multiple poll cycles happen fast
                     if (msg.id <= lastChatId) return;
-                    
+
                     lastChatId = msg.id;
 
                     // 1. Show UI Toast (In-app popup)
