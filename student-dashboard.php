@@ -516,6 +516,60 @@ if ($s_roll !== '') {
         padding: 20px;
         border-radius: 8px;
     }
+
+    /* Notification Toast Styles */
+    .custom-toast {
+        position: fixed;
+        bottom: 20px;
+        right: -400px;
+        width: 320px;
+        background: rgba(255, 255, 255, 0.95);
+        backdrop-filter: blur(10px);
+        border-radius: 12px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+        z-index: 9999;
+        transition: all 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+        padding: 15px;
+        border-left: 5px solid #006699;
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+        cursor: pointer;
+    }
+
+    .custom-toast.show {
+        right: 20px;
+    }
+
+    .toast-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-weight: 700;
+        color: #006699;
+        font-size: 14px;
+    }
+
+    .toast-close {
+        background: none;
+        border: none;
+        font-size: 20px;
+        cursor: pointer;
+        color: #999;
+        line-height: 1;
+    }
+
+    .toast-body {
+        font-size: 13px;
+        color: #444;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .toast-icon {
+        margin-right: 8px;
+    }
 </style>
 <div class="container">
     <div id="mainContainer" class="clearfix">
@@ -619,7 +673,8 @@ if ($s_roll !== '') {
                                 <br /><strong>My Issued Document</strong>
                             </div>
                             <div class="text-center col-xs-6 col-sm-3">
-                                <a href="student_message.php" style="position: relative; display: inline-block;">
+                                <a href="student_message.php"
+                                    style="position: relative; display: inline-block;margin-bottom:12px">
                                     <span class="giit-badge" id="global-chat-badge">0</span>
                                     <img src="images/message.png" border="0" class="dashboard-icon" />
                                 </a>
@@ -822,7 +877,7 @@ if ($s_roll !== '') {
 
     setInterval(checkDocumentRequest, 45000);
     setInterval(checkElectiveForm, 45000);
-    
+
     // Background Chat Check
     let studentId = <?= $_SESSION['s_id'] ?>;
     let globalLastMessageId = null;
@@ -836,11 +891,11 @@ if ($s_roll !== '') {
             .then(data => {
                 if (data.success && data.new_message) {
                     const msg = data.new_message;
-                    
+
                     // On first run, we anchor the real-time checker
                     if (globalLastMessageId === null) {
                         globalLastMessageId = msg.id;
-                        
+
                         // BUT, if this message is newer than what we last READ, show badge
                         if (msg.id > lastReadId) {
                             unreadCount = 1; // At least one
@@ -852,16 +907,16 @@ if ($s_roll !== '') {
                     globalLastMessageId = msg.id;
                     unreadCount++;
                     updateUINotificationBadge('#global-chat-badge', unreadCount);
-                    
+
                     GIITNotification.show(
-                        `New Message: ${msg.source_name}`, 
-                        msg.content, 
+                        `New Message: ${msg.source_name}`,
+                        msg.content,
                         'images/agt_announcements.png',
                         () => { window.location.href = 'student_message.php'; }
                     );
                 } else if (data.success && globalLastMessageId === null) {
                     globalLastMessageId = 0;
-                    
+
                     // If no "new" messages found in last_id check, still check if overall latest > lastRead
                     checkInitialUnread();
                 }
@@ -1019,38 +1074,89 @@ if ($s_roll !== '') {
     </div>
 </div>
 <script>
-    let lastChatId = 0;
-    
+    let lastChatId = null; // Changed to null to allow initialization from localStorage
+
     function initChatNotifications() {
-        // 1. Get initial latest ID
-        fetch('student_message.php?ajax=get_latest_id')
-            .then(r => r.json())
-            .then(data => {
-                if (data.success) {
-                    lastChatId = data.max_id;
-                    // 2. Start Polling
-                    setInterval(checkNewChatMessages, 5000);
-                }
-            });
+        // Use student ID for personalized storage
+        const studentId = <?= $_SESSION['s_id'] ?>;
+        const storageKey = 'giitchat_last_read_id_' + studentId;
+        
+        // Try to get last read ID from localStorage, else fetch from server
+        const savedId = localStorage.getItem(storageKey);
+        
+        if (savedId) {
+            lastChatId = parseInt(savedId);
+            // Start Polling immediately if we have a baseline
+            setInterval(checkNewChatMessages, 5000);
+            // Check once immediately to catch messages sent since last logout
+            checkNewChatMessages();
+        } else {
+            // First time or cleared storage: Get latest from server
+            fetch('student_message.php?ajax=get_latest_id')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        lastChatId = data.max_id;
+                        setInterval(checkNewChatMessages, 5000);
+                    }
+                });
+        }
+    }
+
+    function showToast(title, body) {
+        const toast = document.createElement('div');
+        toast.className = 'custom-toast';
+        toast.onclick = () => {
+            window.location.href = 'student_message.php';
+        };
+
+        toast.innerHTML = `
+            <div class="toast-header">
+                <span><i class="fa fa-bell toast-icon"></i> New Message</span>
+                <button type="button" class="toast-close" onclick="event.stopPropagation(); this.parentElement.parentElement.remove()">&times;</button>
+            </div>
+            <div style="font-size: 11px; color: #006699; font-weight: 600;">${title}</div>
+            <div class="toast-body">${body}</div>
+        `;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.classList.add('show'), 100);
+
+        setTimeout(() => {
+            if (toast.parentElement) {
+                toast.classList.remove('show');
+                setTimeout(() => toast.remove(), 500);
+            }
+        }, 6000);
     }
 
     function checkNewChatMessages() {
+        if (lastChatId === null) return;
+
         fetch(`student_message.php?ajax=check_updates&last_id=${lastChatId}`)
             .then(r => r.json())
             .then(data => {
                 if (data.success && data.new_message) {
                     const msg = data.new_message;
+                    
+                    // Prevent duplicate notifications if multiple poll cycles happen fast
+                    if (msg.id <= lastChatId) return;
+                    
                     lastChatId = msg.id;
-                    
-                    // Show Browser Notification and Play Sound
-                    GIITNotification.show(
-                        "New Message from " + msg.source_name,
-                        msg.content,
-                        'images/message.png',
-                        () => { window.location.href = 'student_message.php'; }
-                    );
-                    
-                    // Update Badge if exists
+
+                    // 1. Show UI Toast (In-app popup)
+                    showToast(msg.source_name, msg.content);
+
+                    // 2. Show Browser Notification and Play Sound
+                    if (typeof GIITNotification !== 'undefined') {
+                        GIITNotification.show(
+                            "New Message from " + msg.source_name,
+                            msg.content,
+                            'images/message.png',
+                            () => { window.location.href = 'student_message.php'; }
+                        );
+                    }
+
+                    // 3. Update Badge
                     if (typeof updateUINotificationBadge === 'function') {
                         updateUINotificationBadge('#global-chat-badge', 'NEW');
                     }
@@ -1058,9 +1164,8 @@ if ($s_roll !== '') {
             });
     }
 
-    $(document).ready(function() {
+    $(document).ready(function () {
         initChatNotifications();
-        // Existing checks if defined
         if (typeof checkDocumentRequest === 'function') checkDocumentRequest();
         if (typeof checkElectiveForm === 'function') checkElectiveForm();
     });
