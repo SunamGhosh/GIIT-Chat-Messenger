@@ -39,11 +39,11 @@ if (isset($_GET['ajax'])) {
         } else {
             // Academic Notices logic
             $sql .= " AND (m.groupId IS NULL OR m.groupId = '0' OR m.groupId = '' OR m.groupId LIKE 'BCT-%')";
-            
+
             // Logic: Show if (targeted to me) OR (broadcast AND matches my filters)
             $sql .= " AND (m.receiver_id = $student_id OR (
                 (m.receiver_id IS NULL OR m.receiver_id = 0)";
-                
+
             if ($university)
                 $sql .= " AND (m.university = '" . mysqli_real_escape_string($con, $university) . "' OR m.university = '')";
             if ($course)
@@ -52,7 +52,7 @@ if (isset($_GET['ajax'])) {
                 $sql .= " AND (m.session = '" . mysqli_real_escape_string($con, $session_id) . "' OR m.session = '')";
             if ($semester)
                 $sql .= " AND (m.semester = '" . mysqli_real_escape_string($con, $semester) . "' OR m.semester = '')";
-                
+
             $sql .= "))";
         }
         $sql .= " ORDER BY m.createdAt ASC";
@@ -75,7 +75,7 @@ if (isset($_GET['ajax'])) {
         }
         // Debug log
         error_log("GIITChat Debug: Student ID $student_id, Query: $sql, Found: " . count($messages));
-        
+
         echo json_encode(['success' => true, 'messages' => $messages]);
         exit;
     }
@@ -148,6 +148,22 @@ if (isset($_GET['ajax'])) {
         echo json_encode(['success' => true, 'max_id' => $row['max_id'] ?: 0]);
         exit;
     }
+
+    if ($_GET['ajax'] == 'save_fcm_token' && $_SERVER['REQUEST_METHOD'] == 'POST') {
+        $token = mysqli_real_escape_string($con, $_POST['token']);
+        if (!empty($token)) {
+            $stmt = $con->prepare("UPDATE student SET fcm_token = ? WHERE s_id = ?");
+            $stmt->bind_param("si", $token, $student_id);
+            if ($stmt->execute()) {
+                echo json_encode(['success' => true]);
+            } else {
+                echo json_encode(['success' => false, 'error' => $stmt->error]);
+            }
+        } else {
+            echo json_encode(['success' => false, 'error' => 'Token is empty']);
+        }
+        exit;
+    }
     if ($_GET['ajax'] == 'get_group_members') {
         $g_id = intval($_GET['groupId'] ?? 0);
         if ($g_id > 0) {
@@ -181,301 +197,535 @@ include("header.php");
 <meta name="author" content="Sunam Ghosh --@SunamGhosh">
 
 <style type="text/css">
-    .content-panel {
-        margin-top: 20px;
-        min-height: 500px;
+    /* Google Fonts */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+    :root {
+        --primary: #6366f1;
+        --primary-light: #eef2ff;
+        --primary-hover: #4f46e5;
+        --accent-purple: #a855f7;
+        --accent-pink: #ec4899;
+        --accent-orange: #f97316;
+        --accent-teal: #14b8a6;
+        --secondary: #64748b;
+        --success: #22c55e;
+        --danger: #ef4444;
+        --warning: #f59e0b;
+        --text-main: #1e293b;
+        --text-muted: #64748b;
+        --bg-sidebar: #f8fafc;
+        --bg-main: #ffffff;
+        --border-soft: #f1f5f9;
+        --border-medium: #e2e8f0;
+        --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+        --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+        --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+        --grad-primary: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
     }
 
-    .page-title:after {
-        display: none;
+    /* Hide Site Headers */
+    .header1, .header2, .header3, #mu-menu {
+        display: none !important;
     }
 
-    .chat-layout {
+    body {
+        background-color: #f1f5f9;
+        font-family: 'Inter', sans-serif;
+        padding-top: 0 !important;
+    }
+
+    .chat-wrapper {
+        padding: 20px 0;
+    }
+
+    .chat-container {
         display: flex;
-        height: 70vh; /* Changed from fixed 600px to viewport relative */
-        min-height: 500px;
-        background: #fff;
-        border: 1px solid #ddd;
-        border-radius: 8px;
+        height: calc(100vh - 140px);
+        min-height: 600px;
+        background: var(--bg-main);
+        border-radius: 20px;
         overflow: hidden;
-        box-shadow: 0 5px 15px rgba(0,0,0,0.05);
+        box-shadow: var(--shadow-lg);
+        border: 1px solid var(--border-medium);
+        position: relative;
     }
 
+    /* Decorative top bar */
+    .chat-container::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 4px;
+        background: var(--grad-primary);
+        z-index: 100;
+    }
 
     .chat-sidebar {
-        width: 300px;
-        border-right: 1px solid #ddd;
+        width: 320px;
+        border-right: 1px solid var(--border-medium);
         display: flex;
         flex-direction: column;
-        background: #f8f9fa;
+        background: var(--bg-sidebar);
     }
 
     .chat-main {
         flex: 1;
         display: flex;
         flex-direction: column;
-        background: #fff;
+        background: var(--bg-main);
+        position: relative;
     }
 
     .sidebar-header {
-        padding: 15px;
-        background: #006699;
-        color: white;
-        font-weight: bold;
+        padding: 24px 20px;
+        background: var(--bg-main);
+        border-bottom: 1px solid var(--border-medium);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .sidebar-header h3 {
+        margin: 0;
+        font-size: 1.1rem;
+        font-weight: 800;
+        color: var(--primary);
+        letter-spacing: -0.02em;
     }
 
     .group-list {
         flex: 1;
         overflow-y: auto;
-        -webkit-overflow-scrolling: touch; /* For smooth mobile scrolling */
+        padding: 15px 12px;
     }
 
+    .group-list::-webkit-scrollbar {
+        width: 5px;
+    }
+
+    .group-list::-webkit-scrollbar-thumb {
+        background: var(--border-medium);
+        border-radius: 10px;
+    }
 
     .group-item {
-        padding: 12px 15px;
-        border-bottom: 1px solid #eee;
+        padding: 14px 16px;
+        border-radius: 14px;
         cursor: pointer;
-        transition: background 0.2s;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        margin-bottom: 10px;
+        background: var(--bg-main);
+        border: 1px solid transparent;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        position: relative;
+        box-shadow: var(--shadow-sm);
     }
 
     .group-item:hover {
-        background: #f0f7ff;
+        background: #ffffff;
+        border-color: var(--primary-light);
+        transform: translateX(4px);
+        box-shadow: var(--shadow-md);
     }
 
     .group-item.active {
-        background: #e1f0ff;
-        border-left: 4px solid #006699;
+        background: linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(168, 85, 247, 0.04) 100%);
+        border: 1px solid rgba(99, 102, 241, 0.2);
+        border-left: 4px solid var(--primary);
+    }
+
+    .group-icon {
+        width: 40px;
+        height: 40px;
+        border-radius: 10px;
+        background: var(--primary-light);
+        color: var(--primary);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.1rem;
+        flex-shrink: 0;
+    }
+
+    .group-item.active .group-icon {
+        background: var(--primary);
+        color: white;
+    }
+
+    .group-info {
+        flex: 1;
+        overflow: hidden;
     }
 
     .group-name {
         font-weight: 600;
+        font-size: 0.9rem;
+        color: var(--text-main);
         display: block;
-    }
-
-    .group-meta {
-        font-size: 11px;
-        color: #777;
-    }
-
-    .chat-header {
-        padding: 12px 15px;
-        border-bottom: 1px solid #ddd;
-        background: #fdfdfd;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-    }
-
-    .messages-container {
-        flex: 1;
-        padding: 15px;
-        overflow-y: auto;
-        -webkit-overflow-scrolling: touch; /* For smooth mobile scrolling */
-        background: #f4f7f9;
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-    }
-
-
-    .message {
-        max-width: 80%;
-        padding: 10px 15px;
-        border-radius: 8px;
-        font-size: 13px;
-        position: relative;
-        line-height: 1.4;
-    }
-
-    .message.received {
-        align-self: flex-start;
-        background: #fff;
-        border: 1px solid #eee;
-        color: #333;
-    }
-
-    .message.sent {
-        align-self: flex-end;
-        background: #006699;
-        color: #fff;
-    }
-
-    .message-info {
-        font-size: 10px;
-        margin-bottom: 4px;
-        display: block;
-        opacity: 0.8;
-    }
-
-    .message-time {
-        font-size: 9px;
-        text-align: right;
-        display: block;
-        margin-top: 4px;
-        opacity: 0.7;
-    }
-
-    .chat-input-area {
-        padding: 15px;
-        border-top: 1px solid #ddd;
-        background: #fff;
-    }
-
-    .input-group-btn .btn {
-        background: #006699;
-        color: #white;
-        border: 1px solid #006699;
-    }
-
-    .input-group-btn .btn:hover {
-        background: #004d73;
-        color: white;
-    }
-
-    .no-messages {
-        text-align: center;
-        margin-top: 50px;
-        color: #888;
-    }
-
-    @media (max-width: 768px) {
-        .chat-layout {
-            flex-direction: column;
-            height: auto; /* Let it expand to content or use a safe fixed height */
-            min-height: 600px;
-            max-height: 90vh;
-            margin-top: 10px;
-            overflow: visible; /* Allow internal containers to handle overflow */
-        }
-
-        .chat-sidebar {
-            width: 100%;
-            height: 150px;
-            min-height: 150px;
-            max-height: 150px;
-            border-right: none;
-            border-bottom: 1px solid #ddd;
-        }
-
-        .chat-main {
-            height: 450px; /* Fixed height for the chat area on mobile to force internal scroll */
-        }
-
-        .messages-container {
-            height: 350px; /* Explicit height to ensure scrolling */
-            -webkit-overflow-scrolling: touch;
-            touch-action: pan-y;
-        }
-
-        .message {
-            max-width: 95%;
-        }
-
-        .chat-input-area {
-            padding: 8px;
-        }
-    }
-
-
-
-    /* Notification Toast Styles */
-    .custom-toast {
-        position: fixed;
-        bottom: 20px;
-        right: -400px;
-        width: 320px;
-        background: rgba(255, 255, 255, 0.95);
-        backdrop-filter: blur(10px);
-        border-radius: 12px;
-        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
-        z-index: 9999;
-        transition: all 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
-        padding: 15px;
-        border-left: 5px solid #006699;
-        display: flex;
-        flex-direction: column;
-        gap: 5px;
-    }
-
-    .custom-toast.show {
-        right: 20px;
-    }
-
-    .toast-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        font-weight: 700;
-        color: #006699;
-        font-size: 14px;
-    }
-
-    .toast-close {
-        background: none;
-        border: none;
-        font-size: 20px;
-        cursor: pointer;
-        color: #999;
-        line-height: 1;
-    }
-
-    .toast-body {
-        font-size: 13px;
-        color: #444;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
     }
 
-    .toast-icon {
-        margin-right: 8px;
+    .group-meta {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        display: block;
     }
 
-    .notification-badge {
-        background: #ff4757;
-        color: white;
-        font-size: 10px;
-        padding: 2px 6px;
-        border-radius: 10px;
-        float: right;
-        display: none;
-        /* Hidden by default */
-        margin-top: 3px;
+    .chat-header {
+        padding: 20px 25px;
+        border-bottom: 1px solid var(--border-medium);
+        background: rgba(255, 255, 255, 0.9);
+        backdrop-filter: blur(10px);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        z-index: 10;
+    }
+
+    .chat-header h4 {
+        margin: 0;
         font-weight: 700;
+        font-size: 1.1rem;
+        color: var(--text-main);
+    }
+
+    .messages-container {
+        flex: 1;
+        padding: 25px;
+        overflow-y: auto;
+        background: #f8fafc;
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+    }
+
+    .messages-container::-webkit-scrollbar {
+        width: 6px;
+    }
+
+    .messages-container::-webkit-scrollbar-thumb {
+        background: #cbd5e1;
+        border-radius: 10px;
+    }
+
+    .message {
+        max-width: 75%;
+        padding: 12px 16px;
+        border-radius: 16px;
+        font-size: 0.9rem;
+        line-height: 1.5;
+        position: relative;
+        animation: messageFadeIn 0.3s ease;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
+    }
+
+    @keyframes messageFadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    .message.received {
+        align-self: flex-start;
+        background: white;
+        color: var(--text-main);
+        border-bottom-left-radius: 4px;
+        border: 1px solid var(--border-soft);
+    }
+
+    .message.sent {
+        align-self: flex-end;
+        background: var(--grad-primary);
+        color: white;
+        border-bottom-right-radius: 4px;
+        box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
+    }
+
+    .message-info {
+        font-size: 0.7rem;
+        font-weight: 600;
+        margin-bottom: 4px;
+        display: block;
+        opacity: 0.7;
+    }
+
+    .message.sent .message-info {
+        text-align: right;
+    }
+
+    .message-time {
+        font-size: 0.65rem;
+        display: block;
+        margin-top: 6px;
+        opacity: 0.6;
+        text-align: right;
+    }
+
+    .chat-input-area {
+        padding: 20px 25px;
+        background: white;
+        border-top: 1px solid var(--border-medium);
+    }
+
+    .input-wrapper {
+        background: #f1f5f9;
+        border-radius: 15px;
+        padding: 5px 5px 5px 15px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        border: 1px solid transparent;
+        transition: all 0.2s;
+    }
+
+    .input-wrapper:focus-within {
+        background: white;
+        border-color: var(--primary);
+        box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.1);
+    }
+
+    .chat-input {
+        flex: 1;
+        background: transparent;
+        border: none;
+        outline: none;
+        padding: 10px 0;
+        font-size: 0.9rem;
+        color: var(--text-main);
+    }
+
+    .send-btn {
+        background: var(--grad-primary);
+        color: white;
+        border: none;
+        width: 40px;
+        height: 40px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: all 0.2s;
+        box-shadow: 0 4px 8px rgba(99, 102, 241, 0.2);
+    }
+
+    .send-btn:hover {
+        transform: scale(1.05) translateY(-2px);
+        box-shadow: 0 6px 12px rgba(99, 102, 241, 0.3);
+    }
+
+    .no-messages {
+        text-align: center;
+        padding: 40px;
+        color: var(--text-muted);
+        font-size: 0.9rem;
+    }
+
+    .notice-lock {
+        padding: 12px;
+        text-align: center;
+        background: #fff7ed;
+        color: #9a3412;
+        font-size: 0.75rem;
+        font-weight: 600;
+        border-top: 1px solid #ffedd5;
+    }
+
+    /* Notification Badge */
+    .notification-badge {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        background: var(--danger);
+        color: white;
+        font-size: 0.65rem;
+        font-weight: 700;
+        min-width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        border: 2px solid var(--bg-sidebar);
+        animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+        0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+        70% { transform: scale(1.1); box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+        100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
     }
 
     .group-item.has-new .notification-badge {
-        display: block;
+        display: flex;
+    }
+
+    /* Custom Toast */
+    .custom-toast {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        width: 320px;
+        background: white;
+        border-radius: 16px;
+        box-shadow: var(--shadow-lg);
+        z-index: 10000;
+        padding: 16px;
+        border: 1px solid var(--border-medium);
+        transform: translateY(-150%);
+        transition: transform 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+    }
+
+    .custom-toast.show {
+        transform: translateY(0);
+    }
+
+    /* Responsive */
+    @media (max-width: 991px) {
+        .chat-container {
+            height: calc(100vh - 40px);
+            border-radius: 0;
+        }
+    }
+
+    @media (max-width: 767px) {
+        .chat-container {
+            flex-direction: column;
+            height: 100vh;
+            border-radius: 0;
+            border: none;
+        }
+
+        .chat-sidebar {
+            width: 100%;
+            height: auto;
+            border-right: none;
+            border-bottom: 1px solid var(--border-medium);
+            background: white;
+        }
+
+        .sidebar-header {
+            padding: 10px 15px;
+            border-bottom: none;
+        }
+
+        .sidebar-header h3 {
+            font-size: 0.9rem;
+        }
+
+        .group-list {
+            display: flex;
+            overflow-x: auto;
+            overflow-y: hidden;
+            padding: 0 15px 10px 15px;
+            gap: 10px;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .group-list::-webkit-scrollbar {
+            height: 0; /* Hide scrollbar but keep functionality */
+        }
+
+        .group-item {
+            flex: 0 0 auto;
+            width: auto;
+            min-width: 120px;
+            max-width: 180px;
+            padding: 8px 12px;
+            margin-bottom: 0;
+            flex-direction: row;
+            gap: 8px;
+            box-shadow: none;
+            border: 1px solid var(--border-medium);
+        }
+
+        .group-item.active {
+            border-left: 1px solid rgba(99, 102, 241, 0.2);
+            border-bottom: 4px solid var(--primary);
+            background: var(--primary-light);
+        }
+
+        .group-item:hover {
+            transform: none;
+        }
+
+        .group-icon {
+            width: 28px;
+            height: 28px;
+            font-size: 0.8rem;
+            border-radius: 8px;
+        }
+
+        .group-name {
+            font-size: 0.75rem;
+        }
+
+        .group-meta {
+            display: none; /* Hide extra info on mobile row to save space */
+        }
+
+        .chat-main {
+            flex: 1;
+            height: 0; /* Important for flex child with overflow */
+        }
+
+        .chat-header {
+            padding: 12px 15px;
+        }
+
+        .chat-header h4 {
+            font-size: 0.95rem;
+        }
+
+        .messages-container {
+            padding: 15px;
+        }
+
+        .message {
+            max-width: 92%;
+            font-size: 0.85rem;
+        }
+
+        .chat-input-area {
+            padding: 10px 15px;
+        }
+
+        .notification-badge {
+            top: -2px;
+            right: -2px;
+            border-width: 1px;
+        }
     }
 </style>
 
-<div class="container">
-    <div id="mainContainer" class="clearfix">
-        <div class="col-sm-12 col-md-1">
-            <br>
-        </div>
-        <div class="col-sm-12 col-md-11">
-            <div class="content-panel col-xs-12">
-                <h2 class="clearfix">
-                    <span class="page-title col-xs-12">GIITChat Messenger
-                        <span class="pull-right" style="font-size: 14px;">
-                            <?php echo htmlspecialchars($_SESSION['course']['course_name'] ?? 'Unknown'); ?>
-                        </span>
-                    </span>
-                </h2>
-
-                <div class="chat-layout">
+<div class="chat-wrapper">
+    <div class="container-fluid">
+        <div class="row">
+            <div class="col-md-10 col-md-offset-1">
+                <div class="chat-container">
                     <!-- Sidebar -->
                     <div class="chat-sidebar">
-                        <div class="sidebar-header">Channels</div>
+                        <div class="sidebar-header">
+                            <h3><i class="fa fa-comments"></i> GIITChat</h3>
+                        </div>
                         <div class="group-list">
                             <!-- Academic Notices -->
                             <div class="group-item active" id="group-0"
                                 onclick="selectGroup(null, 'Academic Notices', 'System generated')">
+                                <div class="group-icon">
+                                    <i class="fa fa-bullhorn"></i>
+                                </div>
+                                <div class="group-info">
+                                    <span class="group-name">Academic Notices</span>
+                                    <span class="group-meta"><?= htmlspecialchars($course) ?> | <?= htmlspecialchars($semester) ?></span>
+                                </div>
                                 <span class="notification-badge" id="badge-0">0</span>
-                                <span class="group-name">📢 Academic Notices</span>
-                                <span class="group-meta"><?= htmlspecialchars($course) ?> |
-                                    <?= htmlspecialchars($semester) ?></span>
                             </div>
 
                             <!-- User Groups -->
@@ -489,48 +739,57 @@ include("header.php");
                             $g_res = $g_stmt->get_result();
                             while ($group = $g_res->fetch_assoc()):
                                 ?>
-                                <div class="group-item" id="group-<?= $group['id'] ?>"
-                                    onclick="selectGroup(<?= $group['id'] ?>, '<?= addslashes($group['group_name']) ?>', 'Group Chat')">
-                                    <span class="notification-badge" id="badge-<?= $group['id'] ?>">0</span>
-                                    <span class="group-name">👥 <?= htmlspecialchars($group['group_name']) ?></span>
-                                    <span class="group-meta">Joined on
-                                        <?= date('d M Y', strtotime($group['created_at'])) ?></span>
-                                </div>
+                                    <div class="group-item" id="group-<?= $group['id'] ?>"
+                                        onclick="selectGroup(<?= $group['id'] ?>, '<?= addslashes($group['group_name']) ?>', 'Group Chat')">
+                                        <div class="group-icon">
+                                            <i class="fa fa-users"></i>
+                                        </div>
+                                        <div class="group-info">
+                                            <span class="group-name"><?= htmlspecialchars($group['group_name']) ?></span>
+                                            <span class="group-meta">Joined on <?= date('d M Y', strtotime($group['created_at'])) ?></span>
+                                        </div>
+                                        <span class="notification-badge" id="badge-<?= $group['id'] ?>">0</span>
+                                    </div>
                             <?php endwhile; ?>
                         </div>
                     </div>
 
-                    <!-- Main Chat -->
+                    <!-- Main Chat Area -->
                     <div class="chat-main">
                         <div class="chat-header">
                             <div>
-                                <strong id="active-name">Academic Notices</strong>
+                                <h4 id="active-name">Academic Notices</h4>
                                 <div id="active-meta" class="group-meta">System generated</div>
                             </div>
-                            <div style="display: flex; gap: 5px; align-items: center;">
-                                <button class="btn btn-xs btn-info" id="view-members-btn" style="display:none;" onclick="viewGroupMembers()"><i class="fa fa-users"></i> Members</button>
-                                <button class="btn btn-xs btn-default" onclick="fetchMessages()"><i class="fa fa-refresh"></i> Refresh</button>
+                            <div style="display: flex; gap: 8px;">
+                                <button class="btn btn-sm btn-default" id="view-members-btn" style="display:none; border-radius: 10px;"
+                                    onclick="viewGroupMembers()"><i class="fa fa-users"></i> Members</button>
+                                <button class="btn btn-sm btn-primary" style="border-radius: 10px; background: var(--grad-primary); border: none;" onclick="fetchMessages()"><i
+                                        class="fa fa-refresh"></i> Refresh</button>
                             </div>
                         </div>
 
                         <div class="messages-container" id="messages-list">
-                            <div class="no-messages">Loading messages...</div>
+                            <div class="no-messages">
+                                <i class="fa fa-spinner fa-spin"></i> Loading conversation...
+                            </div>
                         </div>
 
+                        <!-- Input Area -->
                         <div class="chat-input-area" id="input-container" style="display:none;">
                             <form id="message-form">
-                                <div class="input-group">
-                                    <input type="text" id="message-input" class="form-control"
+                                <div class="input-wrapper">
+                                    <input type="text" id="message-input" class="chat-input"
                                         placeholder="Type your message here...">
-                                    <span class="input-group-btn">
-                                        <button class="btn btn-primary" type="submit">Send</button>
-                                    </span>
+                                    <button class="send-btn" type="submit">
+                                        <i class="fa fa-paper-plane"></i>
+                                    </button>
                                 </div>
                             </form>
                         </div>
-                        <div id="notice-only"
-                            style="padding: 15px; text-align: center; color: #777; font-size: 12px; background: #f9f9f9; border-top: 1px solid #ddd;">
-                            <i class="fa fa-lock"></i> Only faculty and admins can post here.
+
+                        <div id="notice-only" class="notice-lock">
+                            <i class="fa fa-lock"></i> Only faculty and admins can post in Academic Notices.
                         </div>
                     </div>
                 </div>
@@ -614,20 +873,20 @@ include("header.php");
         };
 
         toast.innerHTML = `
-            <div class="toast-header">
-                <span><i class="fa fa-bell toast-icon"></i> New Message</span>
-                <button type="button" class="toast-close" onclick="event.stopPropagation(); this.parentElement.parentElement.remove()">&times;</button>
+            <div class="toast-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <span style="font-weight: 800; color: var(--primary); font-size: 0.85rem;"><i class="fa fa-bell"></i> NEW MESSAGE</span>
+                <button type="button" class="toast-close" style="background:none; border:none; color: var(--text-muted); cursor:pointer; font-size: 1.2rem;">&times;</button>
             </div>
-            <div style="font-size: 11px; color: #006699; font-weight: 600;">${title}</div>
-            <div class="toast-body">${body}</div>
+            <div style="font-weight: 700; color: var(--text-main); font-size: 0.95rem; margin-bottom: 4px;">${title}</div>
+            <div class="toast-body" style="font-size: 0.85rem; color: var(--text-muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">${body}</div>
         `;
         document.body.appendChild(toast);
         setTimeout(() => toast.classList.add('show'), 100);
 
         // 2. Show Native Browser Notification & Play Sound
         GIITNotification.show(
-            `New Message: ${title}`, 
-            body, 
+            `New Message: ${title}`,
+            body,
             'images/agt_announcements.png',
             () => {
                 selectGroup(groupId, title, groupId ? 'Group Chat' : 'System generated');
@@ -787,14 +1046,14 @@ include("header.php");
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <button type="button" class="close" data-dismiss="modal" onclick="$('#groupMembersModal').modal('hide')">&times;</button>
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
                 <h4 class="modal-title"><i class="fa fa-users"></i> Group Members: <span id="gm-title"></span></h4>
             </div>
             <div class="modal-body" id="group_members_body" style="max-height: 60vh; overflow-y: auto;">
                 <!-- Members will be loaded here -->
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-default" data-dismiss="modal" onclick="$('#groupMembersModal').modal('hide')">Close</button>
+                <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
             </div>
         </div>
     </div>

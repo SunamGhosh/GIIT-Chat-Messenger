@@ -7,6 +7,7 @@ require_once("$DOC_ROOT/validator/validate_gs.php");
 if (file_exists("functions.php")) {
     include("functions.php");
 }
+require_once("fcm_helper.php");
 
 // Authentication Check - Following Admission Portal Structure
 $is_authenticated = false;
@@ -67,8 +68,9 @@ if (isset($_POST['POST_TYPE'])) {
             // Fetch exclusions for this session if it's a session-based broadcast
             $exclusion_key = !empty($session) ? "SES-" . $session : "GLOBAL";
 
-            $std_query = $con->query("SELECT s_id FROM student WHERE $where_str AND s_id NOT IN (SELECT student_id FROM chat_group_exclusions WHERE group_key = '$exclusion_key')");
+            $std_query = $con->query("SELECT s_id, fcm_token FROM student WHERE $where_str AND s_id NOT IN (SELECT student_id FROM chat_group_exclusions WHERE group_key = '$exclusion_key')");
             $success_count = 0;
+            $tokens = [];
             if ($std_query) {
                 while ($std = $std_query->fetch_assoc()) {
                     $s_id = $std['s_id'];
@@ -76,8 +78,16 @@ if (isset($_POST['POST_TYPE'])) {
                     $ins->bind_param("iissssss", $faculty_id, $s_id, $content, $uni, $session, $course, $semester, $broadcast_id);
                     $ins->execute();
                     $ins->close();
+                    
+                    if (!empty($std['fcm_token'])) {
+                        $tokens[] = $std['fcm_token'];
+                    }
                     $success_count++;
                 }
+            }
+            // Send Push Notifications in bulk
+            if (!empty($tokens)) {
+                FCMHelper::sendToMultiple($tokens, "New Academic Notice", $content);
             }
             echo json_encode(['error' => 0, 'message' => "Broadcast sent to $success_count students"]);
             exit;
@@ -92,6 +102,16 @@ if (isset($_POST['POST_TYPE'])) {
             $stmt->bind_param("issssss", $faculty_id, $content, $uni, $session, $course, $semester, $g_id);
             if ($stmt->execute()) {
                 echo json_encode(['error' => 0, 'message' => 'Message sent successfully']);
+                
+                // Trigger Push for Group Members (if applicable)
+                if (!empty($groupId)) {
+                    $token_query = $con->query("SELECT s.fcm_token FROM group_members gm JOIN student s ON gm.user_id = s.s_id WHERE gm.group_id = ".intval($groupId)." AND s.fcm_token IS NOT NULL");
+                    $group_tokens = [];
+                    while ($trow = $token_query->fetch_assoc()) $group_tokens[] = $trow['fcm_token'];
+                    if (!empty($group_tokens)) {
+                        FCMHelper::sendToMultiple($group_tokens, "New Message in Group", $content);
+                    }
+                }
             } else {
                 echo json_encode(['error' => 1, 'message' => $stmt->error]);
             }
@@ -429,6 +449,10 @@ if (isset($_POST['POST_TYPE'])) {
                 $stmt->bind_param("iissssss", $faculty_id, $s_id, $personalized_msg, $uni, $sess, $course, $sem, $broadcast_id);
                 if ($stmt->execute()) {
                     $success_count++;
+                    // Trigger Push
+                    if (!empty($std_row['fcm_token'])) {
+                        FCMHelper::send($std_row['fcm_token'], "Important Notice", $personalized_msg);
+                    }
                 } else {
                     $error_count++;
                 }
@@ -557,60 +581,100 @@ if (file_exists("pages/header.php")) {
     /* Google Fonts */
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
+    :root {
+        --primary: #6366f1;
+        --primary-light: #eef2ff;
+        --primary-hover: #4f46e5;
+        --accent-purple: #a855f7;
+        --accent-pink: #ec4899;
+        --accent-orange: #f97316;
+        --accent-teal: #14b8a6;
+        --secondary: #64748b;
+        --success: #22c55e;
+        --danger: #ef4444;
+        --warning: #f59e0b;
+        --text-main: #1e293b;
+        --text-muted: #64748b;
+        --bg-sidebar: #f8fafc;
+        --bg-main: #ffffff;
+        --border-soft: #f1f5f9;
+        --border-medium: #e2e8f0;
+        --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+        --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+        --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+        --grad-primary: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+    }
+
     .chat-wrapper {
         font-family: 'Inter', sans-serif;
-        padding: 0 15px;
+        padding: 0;
+        background: #f1f5f9;
     }
 
     .chat-container {
         display: flex;
-        height: calc(100vh - 120px);
-        background: #ffffff;
+        height: calc(100vh - 65px);
+        /* Adjusted to fit below site header */
+        background: var(--bg-main);
         border: none;
-        border-radius: 16px;
+        border-top: 4px solid #6366f1;
+        border-radius: 0;
         overflow: hidden;
-        margin-top: 20px;
-        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+        margin-top: 0;
+        box-shadow: none;
+        position: relative;
+    }
+
+    .chat-container::before {
+        content: '';
+        position: absolute;
+        top: -4px;
+        left: 0;
+        right: 0;
+        height: 4px;
+        background: var(--grad-primary);
+        z-index: 100;
     }
 
     .chat-sidebar {
-        width: 340px;
-        border-right: 1px solid #ebedf2;
+        width: 350px;
+        border-right: 1px solid var(--border-medium);
         display: flex;
         flex-direction: column;
-        background: #fafbfc;
+        background: var(--bg-sidebar);
     }
 
     .chat-main {
         flex: 1;
         display: flex;
         flex-direction: column;
-        background: #ffffff;
+        background: var(--bg-main);
     }
 
     .sidebar-header {
-        padding: 20px;
-        background: #ffffff;
-        color: #1a1d20;
+        padding: 24px 20px;
+        background: var(--bg-main);
+        color: var(--text-main);
         display: flex;
         justify-content: space-between;
         align-items: center;
-        border-bottom: 1px solid #ebedf2;
+        border-bottom: 1px solid var(--border-medium);
     }
 
     .sidebar-header strong {
-        font-size: 1.05rem;
-        font-weight: 700;
-        color: #0d6efd;
+        font-size: 1.15rem;
+        font-weight: 800;
+        color: var(--primary);
+        letter-spacing: -0.025em;
     }
 
     .sidebar-header .header-btn {
-        background-color: #f0f4f8;
+        background-color: var(--primary-light);
         border: none;
-        color: #0d6efd;
-        border-radius: 8px;
-        padding: 8px 12px;
-        transition: all 0.3s ease;
+        color: var(--primary);
+        border-radius: 10px;
+        padding: 10px 14px;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
         display: inline-flex;
         align-items: center;
         justify-content: center;
@@ -618,61 +682,69 @@ if (file_exists("pages/header.php")) {
     }
 
     .sidebar-header .header-btn:hover {
-        background-color: #e2e8f0;
-        color: #0b5ed7;
-        transform: translateY(-1px);
+        background-color: var(--primary);
+        color: white;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(79, 70, 229, 0.25);
     }
 
     .chat-list {
         flex: 1;
         overflow-y: auto;
-        padding: 15px;
+        padding: 15px 12px;
     }
 
     .chat-list::-webkit-scrollbar {
-        width: 6px;
+        width: 5px;
     }
 
     .chat-list::-webkit-scrollbar-thumb {
-        background: #cbd5e1;
+        background: var(--border-medium);
         border-radius: 10px;
     }
 
     .chat-item {
-        padding: 12px 15px;
-        border-radius: 12px;
+        padding: 14px 16px;
+        border-radius: 14px;
         cursor: pointer;
-        transition: all 0.3s ease;
-        margin-bottom: 8px;
-        background: #ffffff;
-        border: 1px solid #ebedf2;
+        transition: all 0.2s ease;
+        margin-bottom: 10px;
+        background: var(--bg-main);
+        border: 1px solid transparent;
+        box-shadow: var(--shadow-sm);
     }
 
     .chat-item:hover {
-        background: #f8fafc;
-        border-color: #cbd5e1;
-        transform: translateY(-1px);
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.02);
+        background: #ffffff;
+        border-color: var(--primary-light);
+        transform: translateX(4px);
+        box-shadow: var(--shadow-md);
     }
 
     .chat-item.active {
-        background: linear-gradient(135deg, #eff6ff 0%, #e0e7ff 100%);
-        border: 1px solid #bfdbfe;
-        border-left: 4px solid #3b82f6;
+        background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(168, 85, 247, 0.05) 100%);
+        border: 1px solid rgba(99, 102, 241, 0.2);
+        border-left: 5px solid #6366f1;
     }
 
     .chat-item-icon {
         display: flex;
         align-items: center;
         justify-content: center;
-        width: 40px;
-        height: 40px;
-        border-radius: 50%;
-        background-color: #e0e7ff;
-        color: #3b82f6;
+        width: 44px;
+        height: 44px;
+        border-radius: 12px;
+        background-color: var(--primary-light);
+        color: var(--primary);
         margin-right: 15px;
-        font-size: 1.1rem;
+        font-size: 1.15rem;
         flex-shrink: 0;
+        transition: all 0.2s ease;
+    }
+
+    .chat-item:hover .chat-item-icon {
+        background-color: var(--primary);
+        color: white;
     }
 
     .chat-item-content {
@@ -710,14 +782,16 @@ if (file_exists("pages/header.php")) {
 
     .chat-header h4 {
         margin: 0;
-        font-weight: 700;
-        color: #0f172a;
-        font-size: 1.05rem;
+        font-weight: 800;
+        color: var(--text-main);
+        font-size: 1.15rem;
+        letter-spacing: -0.02em;
     }
 
     .chat-header .text-muted {
-        font-size: 0.78rem;
-        color: #64748b;
+        font-size: 0.8rem;
+        color: var(--text-muted);
+        font-weight: 500;
         margin-top: 2px;
     }
 
@@ -767,33 +841,34 @@ if (file_exists("pages/header.php")) {
     .message.received {
         align-self: flex-start;
         background: #ffffff;
-        color: #334155;
-        border: 1px solid #e2e8f0;
+        color: var(--text-main);
+        border: 1px solid var(--border-medium);
         border-bottom-left-radius: 4px;
+        box-shadow: var(--shadow-sm);
     }
 
     .message.sent {
         align-self: flex-end;
-        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+        background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
         color: white;
         border-bottom-right-radius: 4px;
-        box-shadow: 0 4px 10px rgba(37, 99, 235, 0.2);
+        box-shadow: 0 4px 14px rgba(79, 70, 229, 0.3);
     }
 
     .message-footer {
         font-size: 0.7rem;
-        margin-top: 6px;
+        margin-top: 8px;
         text-align: right;
-        opacity: 0.7;
+        font-weight: 500;
         display: block;
     }
 
     .message.sent .message-footer {
-        color: #e0e7ff;
+        color: rgba(255, 255, 255, 0.85);
     }
 
     .message.received .message-footer {
-        color: #94a3b8;
+        color: var(--text-muted);
     }
 
     .composer-area {
@@ -810,19 +885,21 @@ if (file_exists("pages/header.php")) {
     }
 
     .filter-grid select {
-        border-radius: 8px;
-        border: 1px solid #e2e8f0;
-        padding: 8px 12px;
-        font-size: 0.85rem;
-        background-color: #f8fafc;
-        color: #475569;
-        transition: all 0.2s;
+        border-radius: 10px;
+        border: 1px solid var(--border-medium);
+        padding: 10px 14px;
+        font-size: 0.9rem;
+        background-color: var(--bg-sidebar);
+        color: var(--text-main);
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
         width: 100%;
+        font-weight: 500;
     }
 
     .filter-grid select:focus {
-        border-color: #3b82f6;
-        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        border-color: var(--primary);
+        box-shadow: 0 0 0 4px var(--primary-light);
+        background-color: white;
         outline: none;
     }
 
@@ -830,11 +907,11 @@ if (file_exists("pages/header.php")) {
         display: flex;
         gap: 15px;
         align-items: flex-end;
-        background: #f8fafc;
-        border: 1px solid #e2e8f0;
-        border-radius: 20px;
-        padding: 10px 10px 10px 20px;
-        transition: all 0.3s;
+        background: var(--bg-sidebar);
+        border: 1px solid var(--border-medium);
+        border-radius: 16px;
+        padding: 12px 14px 12px 20px;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
     .composer-input-wrapper:focus-within {
@@ -873,23 +950,24 @@ if (file_exists("pages/header.php")) {
     }
 
     .send-btn {
-        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+        background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
         color: white;
         border: none;
-        border-radius: 16px;
-        height: 40px;
-        padding: 0 20px;
-        font-weight: 600;
-        transition: all 0.3s;
+        border-radius: 12px;
+        height: 44px;
+        padding: 0 24px;
+        font-weight: 700;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         display: flex;
         align-items: center;
-        gap: 8px;
+        gap: 10px;
         flex-shrink: 0;
+        box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
     }
 
     .send-btn:hover {
         transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+        box-shadow: 0 6px 16px rgba(79, 70, 229, 0.4);
         color: white;
     }
 
@@ -959,11 +1037,12 @@ if (file_exists("pages/header.php")) {
     }
 
     .custom-modal .btn-primary {
-        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+        background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
         border: none;
-        border-radius: 8px;
-        padding: 8px 20px;
-        font-weight: 600;
+        border-radius: 10px;
+        padding: 10px 24px;
+        font-weight: 700;
+        box-shadow: 0 4px 12px rgba(79, 70, 229, 0.2);
     }
 
     .custom-modal .btn-default {
@@ -1166,20 +1245,20 @@ if (file_exists("pages/header.php")) {
 
     .course-badge.blue {
         background: #eff6ff;
-        color: #3b82f6;
-        border-color: #bfdbfe;
+        color: #4f46e5;
+        border-color: #c7d2fe;
     }
 
     .course-badge.green {
-        background: #f0fdf4;
-        color: #16a34a;
-        border-color: #bbf7d0;
+        background: #ecfdf5;
+        color: #059669;
+        border-color: #a7f3d0;
     }
 
     .course-badge.purple {
-        background: #faf5ff;
-        color: #9333ea;
-        border-color: #e9d5ff;
+        background: #f5f3ff;
+        color: #7c3aed;
+        border-color: #ddd6fe;
     }
 
     .course-badge.orange {
@@ -1190,7 +1269,7 @@ if (file_exists("pages/header.php")) {
 
     .course-badge.red {
         background: #fef2f2;
-        color: #ef4444;
+        color: #dc2626;
         border-color: #fecaca;
     }
 
@@ -1220,7 +1299,9 @@ if (file_exists("pages/header.php")) {
             <div class="chat-list">
                 <div class="chat-item active" onclick="selectChannel(null, 'Academic Broadcast', event)">
                     <div style="display: flex; align-items: center;">
-                        <div class="chat-item-icon"><i class="fa fa-bullhorn"></i></div>
+                        <div class="chat-item-icon"
+                            style="background: linear-gradient(135deg, #ec4899 0%, #db2777 100%); color: white;"><i
+                                class="fa fa-bullhorn"></i></div>
                         <div class="chat-item-content">
                             <div class="chat-item-title">Academic Broadcast</div>
                             <div class="chat-item-subtitle">Send notices to classes</div>
@@ -1236,7 +1317,8 @@ if (file_exists("pages/header.php")) {
                         onclick="selectChannel(<?= $g['id'] ?>, '<?= addslashes($g['group_name']) ?>', event)">
                         <div style="display: flex; justify-content: space-between; align-items: center;">
                             <div style="display: flex; align-items: center; flex: 1; overflow: hidden;">
-                                <div class="chat-item-icon" style="background-color: #f1f5f9; color: #64748b;"><i
+                                <div class="chat-item-icon"
+                                    style="background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%); color: white;"><i
                                         class="fa fa-users"></i></div>
                                 <div class="chat-item-content">
                                     <div class="chat-item-title"><?= htmlspecialchars($g['group_name']) ?></div>
@@ -1271,7 +1353,8 @@ if (file_exists("pages/header.php")) {
                     <div class="chat-item"
                         onclick="selectChannel('SES-<?= $s['id'] ?>', 'Session: <?= addslashes($s['name']) ?> (<?= addslashes($s['uni_short'] ?? '') ?>)', event)">
                         <div style="display: flex; align-items: center;">
-                            <div class="chat-item-icon" style="background-color: #f0fdf4; color: #16a34a;"><i
+                            <div class="chat-item-icon"
+                                style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white;"><i
                                     class="fa fa-calendar"></i></div>
                             <div class="chat-item-content">
                                 <div class="chat-item-title"><?= htmlspecialchars($s['name']) ?>
@@ -1842,24 +1925,24 @@ if (file_exists("pages/footer.php")) {
 
         if (id && id.toString().startsWith('SES-')) {
             headerIcon.className = 'fa fa-university';
-            headerAvatar.style.background = '#fef3c7';
-            headerAvatar.style.color = '#d97706';
+            headerAvatar.style.background = 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)';
+            headerAvatar.style.color = 'white';
             $('#active-subtitle').text("Auto Group (Session Based Broadcast)");
             $('#normal-chat-view').css('display', 'flex');
             $('#broadcast-dashboard-view').hide();
             fetchMessages();
         } else if (id && id.toString().startsWith('DM-')) {
             headerIcon.className = 'fa fa-user';
-            headerAvatar.style.background = '#f0fdf4';
-            headerAvatar.style.color = '#16a34a';
+            headerAvatar.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
+            headerAvatar.style.color = 'white';
             $('#active-subtitle').text("Direct Message");
             $('#normal-chat-view').css('display', 'flex');
             $('#broadcast-dashboard-view').hide();
             fetchMessages();
         } else if (id) {
             headerIcon.className = 'fa fa-users';
-            headerAvatar.style.background = '#eff6ff';
-            headerAvatar.style.color = '#3b82f6';
+            headerAvatar.style.background = 'linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%)';
+            headerAvatar.style.color = 'white';
             activeTitle.innerHTML = title + ' <i class="fa fa-chevron-right" style="font-size: 0.7rem; color: #94a3b8;"></i>';
             $('#active-subtitle').text("Custom Group Chat • View Info");
             $('#normal-chat-view').css('display', 'flex');
@@ -1867,8 +1950,8 @@ if (file_exists("pages/footer.php")) {
             fetchMessages();
         } else {
             headerIcon.className = 'fa fa-bullhorn';
-            headerAvatar.style.background = '#eff6ff';
-            headerAvatar.style.color = '#3b82f6';
+            headerAvatar.style.background = 'linear-gradient(135deg, #ec4899 0%, #db2777 100%)';
+            headerAvatar.style.color = 'white';
             $('#active-subtitle').text("Select filters to broadcast to specific classes");
             $('#normal-chat-view').hide();
             $('#broadcast-dashboard-view').css('display', 'flex');
@@ -2042,14 +2125,14 @@ if (file_exists("pages/footer.php")) {
                             if (isMe) {
                                 if (msg.groupId && msg.groupId.toString().startsWith('BCT-')) {
                                     readStatus = `
-                                        <div style="cursor: pointer; background: #ffeb3b; color: #1a1d20; font-weight: 700; padding: 3px 10px; border-radius: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.15);" onclick="viewBroadcastStats('${msg.groupId}')" title="Click to view read receipts">
+                                        <div style="cursor: pointer; background: rgba(255,255,255,0.2); color: #fff; font-weight: 700; padding: 4px 12px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.3);" onclick="viewBroadcastStats('${msg.groupId}')" title="Click to view read receipts">
                                             <i class="fa fa-users"></i> ${msg.broadcast_seen} / ${msg.broadcast_total} Seen
                                         </div>
                                     `;
                                 } else if (msg.receiver_id) {
                                     readStatus = msg.is_read == 1
-                                        ? `<span style="background: #4ade80; color: #0f172a; font-weight: 700; padding: 3px 10px; border-radius: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.15); cursor: pointer;" title="Read at ${msg.read_at}" onclick="viewBroadcastStats(null, ${msg.id})"><i class="fa fa-check-circle"></i> Seen</span>`
-                                        : `<span style="background: rgba(255,255,255,0.25); color: #fff; font-weight: 600; padding: 3px 10px; border-radius: 20px;" title="Unread"><i class="fa fa-check"></i> Sent</span>`;
+                                        ? `<span style="background: var(--success); color: #fff; font-weight: 700; padding: 4px 12px; border-radius: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);" title="Read at ${msg.read_at}" onclick="viewBroadcastStats(null, ${msg.id})"><i class="fa fa-check-circle"></i> Seen</span>`
+                                        : `<span style="background: rgba(255,255,255,0.2); color: #fff; font-weight: 600; padding: 4px 12px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.2);" title="Unread"><i class="fa fa-check"></i> Sent</span>`;
                                 }
                             }
 

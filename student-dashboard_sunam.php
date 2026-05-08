@@ -397,128 +397,42 @@ if ($s_roll !== '') {
     $stmt->close();
 }
 ?>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap"
+    rel="stylesheet">
 <style type="text/css">
-    table {
-        width: 100%;
+    :root {
+        --primary: #4f46e5;
+        --primary-light: #818cf8;
+        --primary-dark: #312e81;
+        --secondary: #6366f1;
+        --accent: #4f46e5;
+        --bg-main: #f5f5ff;
+        --card-bg: rgba(255, 255, 255, 0.88);
+        --text-main: #0f172a;
+        --text-muted: #64748b;
+        --glass-border: rgba(99, 102, 241, 0.15);
+        --shadow-sm: 0 1px 2px 0 rgb(79 70 229 / 0.06);
+        --shadow-md: 0 4px 6px -1px rgb(79 70 229 / 0.12), 0 2px 4px -2px rgb(79 70 229 / 0.08);
+        --shadow-lg: 0 10px 15px -3px rgb(79 70 229 / 0.15), 0 4px 6px -4px rgb(79 70 229 / 0.1);
+        --radius-lg: 20px;
+        --radius-md: 12px;
     }
 
-    [scope="row"] {
-        text-align: center;
+    body {
+        background-color: var(--bg-main);
+        background-image:
+            radial-gradient(at 0% 0%, rgba(79, 70, 229, 0.07) 0px, transparent 50%),
+            radial-gradient(at 100% 100%, rgba(99, 102, 241, 0.05) 0px, transparent 50%);
+        font-family: 'Outfit', sans-serif !important;
+        color: var(--text-main);
+        -webkit-font-smoothing: antialiased;
     }
 
-    .content-panel.col-xs-12 p {
-        margin: 0;
-    }
-
-    .press-coverage {
-        background-color: #e4e4e4;
-        margin-top: 20px;
-        padding-bottom: 15px;
-    }
-
-    .press-coverage img {
-        background-color: #fff;
-        border-radius: 5px;
-        box-shadow: 0 0 5px #ccc;
-        display: block;
-        margin: 0 auto;
-        max-width: 100%;
-        padding: 10px;
-    }
-
-    .media-title {
-        background-color: #006699;
-        color: rgb(255, 255, 255);
-        font-size: 16px;
-        font-weight: bold;
-        padding: 12px 10px 11px;
-    }
-
-    ul {
-        margin: 0;
-        padding: 0;
-        list-style: none;
-    }
-
-    .press-coverage li {
-        padding: 15px 15px 0;
-    }
-
-    .page-title:after {
-        display: none;
-    }
-
-    .row>div {
-        height: 100px;
-    }
-
-    #st {
-        font-size: 19px;
-        font-family: serif;
-        color: red;
-        text-align: center;
-        animation: animate 1.5s linear infinite;
-    }
-
-    @keyframes animate {
-        0% {
-            opacity: 0;
-        }
-
-        50% {
-            opacity: 0.7;
-        }
-
-        100% {
-            opacity: 0;
-        }
-    }
-
-    .dashboard-icon {
-        width: 35px;
-        height: 45px;
-        object-fit: contain;
-        display: block;
-        margin: 0 auto -30px auto;
-        margin-top: -4px;
-    }
-
-    /* New styles for modals */
-    #docDetailsModal .w3-modal-content {
-        max-width: 600px;
-    }
-
-    #video,
-    #canvas {
-        width: 320px;
-        height: 240px;
-    }
-
-    #photo {
-        max-width: 320px;
-        max-height: 240px;
-        display: block;
-        margin-top: 10px;
-    }
-
-    .response-success {
-        background-color: #d4edda;
-        color: #155724;
-        border: 1px solid #c3e6cb;
-        padding: 20px;
-        border-radius: 8px;
-    }
-
-    .response-danger {
-        background-color: #f8d7da;
-        color: #721c24;
-        border: 1px solid #f5c6cb;
-        padding: 20px;
-        border-radius: 8px;
-    }
-
-    /* Hide Site Header on Dashboard */
+    /* Hide Site Header */
     .header1,
+    .header2,
     .header3,
     #mu-menu {
         display: none !important;
@@ -529,192 +443,749 @@ if ($s_roll !== '') {
     }
 
     #mainContainer {
-        margin-top: 20px;
+        margin-top: 10px;
+        padding-bottom: 40px;
     }
 
+    @keyframes headerShimmer {
+        0% {
+            transform: translateX(-100%) skewX(-15deg);
+        }
 
-    /* Notification Toast Styles */
-    .custom-toast {
-        position: fixed;
-        bottom: 20px;
-        right: -400px;
-        width: 320px;
-        background: rgba(255, 255, 255, 0.95);
-        backdrop-filter: blur(10px);
-        border-radius: 12px;
-        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
-        z-index: 9999;
-        transition: all 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
-        padding: 15px;
-        border-left: 5px solid #006699;
-        display: flex;
-        flex-direction: column;
-        gap: 5px;
-        cursor: pointer;
+        100% {
+            transform: translateX(400%) skewX(-15deg);
+        }
     }
 
-    .custom-toast.show {
-        right: 20px;
+    @keyframes coursePulse {
+
+        0%,
+        100% {
+            box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.3), 0 4px 15px rgba(0, 0, 0, 0.15);
+        }
+
+        50% {
+            box-shadow: 0 0 0 6px rgba(255, 255, 255, 0.08), 0 4px 20px rgba(0, 0, 0, 0.2);
+        }
     }
 
-    .toast-header {
+    @keyframes badgeFadeIn {
+        from {
+            opacity: 0;
+            transform: scale(0.8) translateY(4px);
+        }
+
+        to {
+            opacity: 1;
+            transform: scale(1) translateY(0);
+        }
+    }
+
+    .college-branding {
+        text-align: center;
+        margin-bottom: 0px !important;
+        background: #ffffff;
+        padding: 12px 15px;
+        border-radius: var(--radius-md) var(--radius-md) 0 0;
+        box-shadow: none;
+        border: 1px solid rgba(0, 0, 0, 0.05);
+        border-bottom: none;
+        animation: fadeInUp 0.8s ease-out;
+    }
+
+    .college-name {
+        font-weight: 800;
+        font-size: 2rem;
+        color: #ce1126;
+        /* Official College Red */
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+        margin-bottom: 4px;
+        display: block;
+        line-height: 1.1;
+    }
+
+    .college-affiliation {
+        font-size: 0.85rem;
+        color: #000000;
+        /* Sharp Black */
+        font-weight: 700;
+        letter-spacing: 0.01em;
+        display: block;
+        white-space: nowrap;
+    }
+
+    .welcome-header {
+        background: linear-gradient(135deg, #1e1b6e 0%, #312e81 35%, #4f46e5 70%, #818cf8 100%);
+        padding: 22px 26px !important;
+        border-radius: var(--radius-lg);
+        color: white !important;
+        margin-bottom: 25px !important;
+        box-shadow: 0 20px 40px -8px rgba(49, 46, 129, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
         display: flex;
         justify-content: space-between;
         align-items: center;
-        font-weight: 700;
-        color: #006699;
-        font-size: 14px;
-    }
-
-    .toast-close {
-        background: none;
-        border: none;
-        font-size: 20px;
-        cursor: pointer;
-        color: #999;
-        line-height: 1;
-    }
-
-    .toast-body {
-        font-size: 13px;
-        color: #444;
-        white-space: nowrap;
+        border: none !important;
+        position: relative;
         overflow: hidden;
-        text-overflow: ellipsis;
     }
 
-    .toast-icon {
-        margin-right: 8px;
+    /* Decorative bubble top-right */
+    .welcome-header::before {
+        content: '';
+        position: absolute;
+        top: -60px;
+        right: -60px;
+        width: 200px;
+        height: 200px;
+        background: radial-gradient(circle, rgba(255, 255, 255, 0.12) 0%, transparent 65%);
+        border-radius: 50%;
+        pointer-events: none;
+    }
+
+    /* Shimmer sweep */
+    .welcome-header::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 60px;
+        height: 100%;
+        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.18), transparent);
+        animation: headerShimmer 3.5s ease-in-out infinite;
+        pointer-events: none;
+    }
+
+    .welcome-text {
+        font-weight: 800;
+        font-size: 1.45rem;
+        letter-spacing: -0.025em;
+        text-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        line-height: 1.2;
+    }
+
+    .welcome-text span {
+        display: block;
+        font-size: 0.82rem;
+        font-weight: 400;
+        opacity: 0.82;
+        margin-top: 5px;
+        letter-spacing: 0.01em;
+    }
+
+    /* ── Attractive course-info pill ── */
+    .course-info {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        font-size: 0.82rem;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        background: rgba(255, 255, 255, 0.18);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        padding: 8px 18px 8px 14px;
+        border-radius: 50px;
+        color: #fff;
+        border: 1.5px solid rgba(255, 255, 255, 0.4);
+        box-shadow: 0 4px 18px rgba(49, 46, 129, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+        animation: coursePulse 3s ease-in-out infinite, badgeFadeIn 0.6s ease-out both;
+        white-space: nowrap;
+        position: relative;
+        z-index: 1;
+        flex-shrink: 0;
+        text-transform: uppercase;
+    }
+
+    .course-info .ci-icon {
+        width: 26px;
+        height: 26px;
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.8rem;
+        flex-shrink: 0;
+        color: #fff !important;
+        border: 1.5px solid transparent;
+        background-image: linear-gradient(rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.1)), linear-gradient(135deg, #f97316, #fbbf24);
+        background-origin: border-box;
+        background-clip: content-box, border-box;
+    }
+
+    .course-info .ci-uni {
+        font-size: 0.68rem;
+        font-weight: 700;
+        opacity: 1;
+        color: #fff;
+        display: block;
+        letter-spacing: 0.03em;
+    }
+
+    .content-panel {
+        background: transparent !important;
+        box-shadow: none !important;
+        border: none !important;
+        padding: 0 !important;
+    }
+
+    .dashboard-link-card {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 20px 10px;
+        margin-bottom: 20px;
+        background: var(--card-bg);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border-radius: var(--radius-md);
+        box-shadow: var(--shadow-md);
+        text-decoration: none !important;
+        color: var(--text-main) !important;
+        transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+        border: 1px solid var(--glass-border);
+        height: 110px !important;
+        position: relative;
+    }
+
+    .dashboard-link-card:hover {
+        transform: translateY(-8px) scale(1.02);
+        box-shadow: 0 12px 28px -4px rgba(79, 70, 229, 0.22);
+        background: white;
+        border-color: #818cf8;
+    }
+
+    .dashboard-link-card i {
+        font-size: 28px;
+        margin-bottom: 12px;
+        background: linear-gradient(135deg, #312e81 0%, #818cf8 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        transition: transform 0.3s ease;
+    }
+
+    .dashboard-link-card:hover i {
+        transform: rotate(-10deg) scale(1.1);
+    }
+
+    .dashboard-link-card strong {
+        font-size: 0.75rem;
+        font-weight: 700;
+        display: block;
+        line-height: 1.2;
+        text-align: center;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text-muted);
+        transition: color 0.3s ease;
+    }
+
+    .dashboard-link-card:hover strong {
+        color: var(--primary-dark);
+    }
+
+    .giit-badge {
+        background: #4f46e5;
+        color: white;
+        font-size: 10px;
+        font-weight: 700;
+        padding: 2px 8px;
+        border-radius: 12px;
+        box-shadow: 0 4px 10px rgba(79, 70, 229, 0.4);
+        border: 2px solid #fff;
+    }
+
+    /* Alerts and Notifications */
+    .alert-compact {
+        background: white !important;
+        border-radius: var(--radius-md) !important;
+        border: 1px solid var(--glass-border) !important;
+        box-shadow: var(--shadow-md) !important;
+        color: var(--text-main) !important;
+        padding: 12px 20px !important;
+        margin-bottom: 20px !important;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .alert-info {
+        border-left: 4px solid var(--primary) !important;
+    }
+
+    .alert-warning {
+        border-left: 4px solid #f59e0b !important;
+    }
+
+    .no-data {
+        text-align: center;
+        padding: 40px;
+        background: var(--card-bg);
+        border-radius: var(--radius-md);
+        color: var(--text-muted);
+    }
+
+    .alert-link {
+        background: #4f46e5;
+        color: white !important;
+        padding: 4px 12px;
+        border-radius: 20px;
+        text-decoration: none !important;
+        font-weight: 600;
+        font-size: 0.8rem;
+        margin-left: auto;
+        transition: opacity 0.2s;
+    }
+
+    .alert-link:hover {
+        opacity: 0.9;
+    }
+
+    /* Custom Toast */
+    .custom-toast {
+        position: fixed;
+        top: 24px;
+        right: 24px;
+        width: 350px;
+        background: rgba(255, 255, 255, 0.97);
+        backdrop-filter: blur(16px);
+        border-radius: var(--radius-md);
+        box-shadow: 0 20px 40px rgba(49, 46, 129, 0.18);
+        z-index: 11000;
+        padding: 20px;
+        border: 1px solid rgba(79, 70, 229, 0.22);
+        transform: translateX(120%);
+        transition: transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    .custom-toast.show {
+        transform: translateX(0);
+    }
+
+    /* Modal Styling */
+    .w3-modal-content {
+        border-radius: var(--radius-lg) !important;
+        overflow: hidden;
+        border: 1px solid var(--glass-border) !important;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25) !important;
+    }
+
+    .w3-purple {
+        background: linear-gradient(135deg, #1e1b6e 0%, #4f46e5 100%) !important;
+    }
+
+    .w3-button.w3-green {
+        background-color: #4f46e5 !important;
+        border-radius: var(--radius-md) !important;
+        font-weight: 600 !important;
+    }
+
+    .w3-button.w3-red {
+        background-color: #312e81 !important;
+        border-radius: var(--radius-md) !important;
+    }
+
+    /* Grid layout fixes */
+    .row-compact {
+        margin-left: -10px;
+        margin-right: -10px;
+    }
+
+    .col-compact {
+        padding-left: 10px;
+        padding-right: 10px;
+    }
+
+    /* Entrance Animation */
+    @keyframes fadeInUp {
+        from {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .dashboard-link-card {
+        animation: fadeInUp 0.5s ease-out forwards;
+        opacity: 0;
+    }
+
+    .dashboard-link-card:nth-child(1) {
+        animation-delay: 0.1s;
+    }
+
+    .dashboard-link-card:nth-child(2) {
+        animation-delay: 0.15s;
+    }
+
+    .dashboard-link-card:nth-child(3) {
+        animation-delay: 0.2s;
+    }
+
+    /* ... and so on, but for simplicity I'll apply it to all with a base delay */
+
+    @media (max-width: 768px) {
+        .welcome-header {
+            flex-direction: row;
+            align-items: flex-end;
+            flex-wrap: wrap;
+            gap: 8px;
+            padding: 16px 18px !important;
+            min-height: 90px;
+        }
+
+        .welcome-text {
+            font-size: 1.05rem;
+            flex: 1 1 auto;
+            min-width: 0;
+        }
+
+        .welcome-text span {
+            font-size: 0.75rem;
+            margin-top: 3px;
+        }
+
+        /* Pill floats to the right, vertically centred */
+        .course-info {
+            font-size: 0.7rem;
+            padding: 6px 12px 6px 10px;
+            gap: 5px;
+            flex-shrink: 0;
+            align-self: flex-start;
+            margin-top: 2px;
+            animation: coursePulse 3s ease-in-out infinite, badgeFadeIn 0.6s ease-out both;
+            letter-spacing: 0.01em;
+        }
+
+        .course-info .ci-icon {
+            width: 20px;
+            height: 20px;
+            font-size: 0.7rem;
+            color: #fff !important;
+            border: 1.2px solid transparent;
+            background-image: linear-gradient(rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.1)), linear-gradient(135deg, #f97316, #fbbf24);
+            background-origin: border-box;
+            background-clip: content-box, border-box;
+        }
+
+        .course-info .ci-uni {
+            display: inline-block;
+            font-size: 0.65rem;
+            margin-left: 4px;
+            opacity: 1;
+            color: #fff;
+            font-weight: 700;
+        }
+
+        .course-info .ci-uni:not(:empty)::before {
+            content: '(';
+        }
+
+        .course-info .ci-uni:not(:empty)::after {
+            content: ')';
+        }
+
+        .course-info .ci-uni:empty {
+            display: none;
+        }
+
+        .dashboard-link-card {
+            height: 95px !important;
+            padding: 15px 5px;
+        }
+
+        .dashboard-link-card i {
+            font-size: 24px;
+        }
+
+        .dashboard-link-card strong {
+            font-size: 0.62rem;
+        }
+    }
+
+    /* ============================================================
+       PHONE ONLY (≤ 480px) — native app feel, no side gaps
+    ============================================================ */
+    @media (max-width: 480px) {
+
+        /* 1. Kill all Bootstrap side padding so content is edge-to-edge */
+        .container,
+        .col-sm-12.col-md-12,
+        .content-panel.col-xs-12 {
+            padding-left: 0 !important;
+            padding-right: 0 !important;
+            max-width: 100% !important;
+            width: 100% !important;
+        }
+
+        #mainContainer {
+            margin-top: 5px !important;
+        }
+
+        /* 2. Full-bleed header with rounded bottom — app chrome look */
+        .welcome-header {
+            border-radius: 0 0 28px 28px !important;
+            padding: 22px 18px 20px !important;
+            margin-bottom: 16px !important;
+            min-height: unset;
+            align-items: center;
+        }
+
+        /* 3. Inner grid area gets symmetrical padding */
+        .col-md-12 {
+            padding-left: 12px !important;
+            padding-right: 12px !important;
+        }
+
+        /* 4. App icon cards — iOS pill style */
+        .dashboard-link-card {
+            border-radius: 20px !important;
+            height: 90px !important;
+            padding: 12px 4px 10px !important;
+            -webkit-tap-highlight-color: transparent;
+            transition: transform 0.12s ease !important;
+        }
+
+        .dashboard-link-card:active {
+            transform: scale(0.93) !important;
+        }
+
+        .dashboard-link-card:hover {
+            transform: none !important;
+        }
+
+        /* 5. Icon: coloured rounded pill instead of gradient text */
+        .dashboard-link-card i {
+            font-size: 20px !important;
+            margin-bottom: 6px !important;
+            width: 42px !important;
+            height: 42px !important;
+            border-radius: 13px !important;
+            background: linear-gradient(135deg, rgba(79, 70, 229, 0.11) 0%, rgba(129, 140, 248, 0.2) 100%) !important;
+            -webkit-background-clip: unset !important;
+            background-clip: unset !important;
+            -webkit-text-fill-color: #4f46e5 !important;
+            color: #4f46e5 !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            transition: none !important;
+        }
+
+        /* Logout icon gets a red pill */
+        a[href="logmeout.php"] i {
+            background: linear-gradient(135deg, rgba(239, 68, 68, 0.1) 0%, rgba(252, 165, 165, 0.2) 100%) !important;
+            -webkit-text-fill-color: #ef4444 !important;
+        }
+
+        /* 6. Label text */
+        .dashboard-link-card strong {
+            font-size: 0.57rem !important;
+            color: #374151 !important;
+            letter-spacing: 0.03em;
+            line-height: 1.3;
+            white-space: normal !important;
+            word-break: break-word;
+        }
+
+        /* 7. Toast slides up from bottom */
+        .custom-toast {
+            top: auto !important;
+            bottom: 16px !important;
+            right: 12px !important;
+            left: 12px !important;
+            width: auto !important;
+            transform: translateY(130%) !important;
+        }
+
+        .custom-toast.show {
+            transform: translateY(0) !important;
+        }
+
+        .college-branding {
+            margin-bottom: 0px !important;
+            padding: 10px !important;
+            border-radius: 20px 20px 0 0 !important;
+        }
+
+        .college-name {
+            font-size: 1.15rem !important;
+            letter-spacing: -0.01em !important;
+        }
+
+        .college-affiliation {
+            font-size: 0.65rem !important;
+            white-space: normal !important;
+        }
     }
 </style>
 <div class="container">
     <div id="mainContainer" class="clearfix">
+        <div class="college-branding">
+            <span class="college-name">GIIT PROFESSIONAL COLLEGE</span>
+            <span class="college-affiliation">Affiliated to KOLHAN UNIVERSITY | Approved by HRD, Govt. of
+                Jharkhand</span>
+        </div>
         <div class="col-sm-12 col-md-12 pull-right">
             <div class="content-panel col-xs-12">
-                <h2 class="clearfix">
-                    <span class="page-title col-xs-12">
-                        Welcome <?php echo htmlspecialchars($student['s_name'] ?? 'Student'); ?>
+                <h4 class="welcome-header">
+                    <div class="welcome-text">
+                        Welcome, <?php echo htmlspecialchars($student['s_name'] ?? 'Student'); ?>
                         <?php if ($elective_group_name): ?>
-                            <span
-                                style="font-size: 14px; background: #8e24aa; color: #fff; padding: 2px 10px; border-radius: 15px; margin-left: 10px; vertical-align: middle; display: inline-block;">
-                                Elective: <?php echo htmlspecialchars($elective_group_name); ?>
+                            <span class="giit-badge"
+                                style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); margin-left: 10px;">
+                                <i class="fa fa-tags"></i> <?php echo htmlspecialchars($elective_group_name); ?>
                             </span>
                         <?php endif; ?>
-                        <span class="pull-right">
+                        <span>Glad to have you back!</span>
+                    </div>
+                    <div class="course-info">
+                        <span class="ci-icon"><i class="fa fa-graduation-cap"></i></span>
+                        <span>
                             <?php echo htmlspecialchars($_SESSION['course']['course_name'] ?? ''); ?>
-                            (<?php echo htmlspecialchars($_SESSION['course']['university_short_name'] ?? ''); ?>)
+                            <span
+                                class="ci-uni"><?php echo htmlspecialchars($_SESSION['course']['university_short_name'] ?? ''); ?></span>
                         </span>
-                    </span>
-                </h2>
+                    </div>
+                </h4>
                 <div class="col-md-12">
                     <div class="celarfix">
                         <div id="elective_notification_area"></div>
                         <?php if ($due_fee != 0): ?>
-                            <div class='alert alert-info alert-dismissible' role='alert'>
-                                <button type='button' class='close' data-dismiss='alert' aria-label='Close'>
-                                    <span aria-hidden='true'>&times;</span>
-                                </button>
-                                Dear <b><?php echo htmlspecialchars($student['s_name'] ?? 'Student'); ?></b>,
-                                your due fee of <b>Rs.<?php echo number_format($due_fee); ?></b>
-                                is outstanding for <b><?php echo $due_days; ?> days</b>.
-                                You can pay online at
-                                <a href='/fee' target='_blank' class='alert-link'>mygiit.com/fee</a>.
+                            <div class='alert alert-info alert-compact' role='alert'>
+                                <i class="fa fa-credit-card" style="color: var(--primary); font-size: 1.2rem;"></i>
+                                <div>
+                                    Pending Fee: <b>Rs.<?php echo number_format($due_fee); ?></b>
+                                    <small style="color: var(--text-muted); margin-left: 5px;">(Overdue by
+                                        <?php echo $due_days; ?> days)</small>
+                                </div>
+                                <a href='/fee' target='_blank' class='alert-link'>Pay Now</a>
                             </div>
                         <?php endif; ?>
-                        <div class="row">
-                            <div class="text-center col-xs-6 col-sm-3">
-                                <a href="student-profile.php"><img src="images/my-profile.png" border="0" /></a>
-                                <br /><strong>My Profile</strong>
-                            </div>
-                            <div class="text-center col-xs-6 col-sm-3">
-                                <a href="student_subject.php"><img src="images/Courses.png" border="0" /></a>
-                                <br /><strong>My Subjects & Chapters</strong>
-                            </div>
-                            <div class="text-center col-xs-6 col-sm-3">
-                                <a href="student-assignment.php">
-                                    <img src="images/download.png" border="0" />
+                        <div class="row row-compact">
+                            <div class="text-center col-xs-3 col-sm-3 col-compact">
+                                <a href="student-profile.php" class="dashboard-link-card"
+                                    style="animation-delay: 0.1s;">
+                                    <i class="fa fa-user-circle"></i>
+                                    <strong>Profile</strong>
                                 </a>
-                                <br /><strong>Assignments</strong>
                             </div>
-                            <div class="text-center col-xs-6 col-sm-3">
-                                <a href="student-questionbank.php">
-                                    <img src="images/question.png" class="dashboard-icon" alt="Question Bank" />
+                            <div class="text-center col-xs-3 col-sm-3 col-compact">
+                                <a href="student_subject.php" class="dashboard-link-card"
+                                    style="animation-delay: 0.15s;">
+                                    <i class="fa fa-book"></i>
+                                    <strong>Subjects</strong>
                                 </a>
-                                <br /><strong>Question Bank</strong>
+                            </div>
+                            <div class="text-center col-xs-3 col-sm-3 col-compact">
+                                <a href="student-assignment.php" class="dashboard-link-card"
+                                    style="animation-delay: 0.2s;">
+                                    <i class="fa fa-tasks"></i>
+                                    <strong>Assignment</strong>
+                                </a>
+                            </div>
+                            <div class="text-center col-xs-3 col-sm-3 col-compact">
+                                <a href="student-questionbank.php" class="dashboard-link-card"
+                                    style="animation-delay: 0.25s;">
+                                    <i class="fa fa-database"></i>
+                                    <strong>Q. Bank</strong>
+                                </a>
                             </div>
                         </div>
-                        <div class="row">
-                            <div class="text-center col-xs-6 col-sm-3">
-                                <a href="student-university-questions.php">
-                                    <img src="images/graduation.png" class="dashboard-icon" />
+                        <div class="row row-compact">
+                            <div class="text-center col-xs-3 col-sm-3 col-compact">
+                                <a href="student-university-questions.php" class="dashboard-link-card"
+                                    style="animation-delay: 0.3s;">
+                                    <i class="fa fa-university"></i>
+                                    <strong>Uni Ques</strong>
                                 </a>
-                                <br /><strong>University Questions</strong>
                             </div>
-                            <div class="text-center col-xs-6 col-sm-3">
-                                <a href="stud-class-summary.php"><img src="images/class.png" height="32" width="32"
-                                        border="0" /></a>
-                                <br /><strong id="st">Class Summary</strong>
-                            </div>
-                            <div class="text-center col-xs-6 col-sm-3">
-                                <a href="le/index.php"><img src="images/learnEnglish.png" border="0" /></a>
-                                <br /><strong>Learn English</strong>
-                            </div>
-                            <div class="text-center col-xs-6 col-sm-3">
-                                <a
-                                    href="student-syllabus.php?university_id=<?php echo urlencode($university_id); ?>&course_id=<?php echo urlencode($course_id); ?>">
-                                    <img src="images/gnome-applications.png" border="0" />
+                            <div class="text-center col-xs-3 col-sm-3 col-compact">
+                                <a href="stud-class-summary.php" class="dashboard-link-card"
+                                    style="animation-delay: 0.35s;">
+                                    <i class="fa fa-bar-chart"></i>
+                                    <strong>Summary</strong>
                                 </a>
-                                <br /><strong>Syllabus</strong>
+                            </div>
+                            <div class="text-center col-xs-3 col-sm-3 col-compact">
+                                <a href="le/index.php" class="dashboard-link-card" style="animation-delay: 0.4s;">
+                                    <i class="fa fa-language"></i>
+                                    <strong>English</strong>
+                                </a>
+                            </div>
+                            <div class="text-center col-xs-3 col-sm-3 col-compact">
+                                <a href="student-syllabus.php?university_id=<?php echo urlencode($university_id); ?>&course_id=<?php echo urlencode($course_id); ?>"
+                                    class="dashboard-link-card" style="animation-delay: 0.45s;">
+                                    <i class="fa fa-list-alt"></i>
+                                    <strong>Syllabus</strong>
+                                </a>
                             </div>
                         </div>
-                        <div class="row">
-                            <div class="text-center col-xs-6 col-sm-3">
-                                <a
-                                    href="student_course.php?university_id=<?php echo urlencode($university_id); ?>&course_id=<?php echo urlencode($course_id); ?>">
-                                    <img src="images/gnome-applications.png" border="0" />
+                        <div class="row row-compact">
+                            <div class="text-center col-xs-3 col-sm-3 col-compact">
+                                <a href="student_course.php?university_id=<?php echo urlencode($university_id); ?>&course_id=<?php echo urlencode($course_id); ?>"
+                                    class="dashboard-link-card" style="animation-delay: 0.5s;">
+                                    <i class="fa fa-cubes"></i>
+                                    <strong>Course</strong>
                                 </a>
-                                <br /><strong>Course Structure</strong>
                             </div>
-                            <div class="text-center col-xs-6 col-sm-3">
-                                <a href="student-fee.php"><img src="images/id-card.png" border="0" /></a>
-                                <br /><strong>My Fee</strong>
-                            </div>
-                            <!-- <div class="text-center col-xs-6 col-sm-3">
-                    <a href="notice.php"><img src="images/agt_announcements.png" border="0" /></a>
-                    <br /><strong>Notices &amp; Announcements</strong>
-                </div> -->
-                            <div class="text-center col-xs-6 col-sm-3">
-                                <a href="student_issue_doc.php"><img src="images/shield.png" border="0"
-                                        class="dashboard-icon" /></a>
-                                <br /><strong>My Issued Document</strong>
-                            </div>
-                            <div class="text-center col-xs-6 col-sm-3">
-                                <a href="student_message.php"
-                                    style="position: relative; display: inline-block;margin-bottom:12px">
-                                    <span class="giit-badge" id="global-chat-badge">0</span>
-                                    <img src="images/message.png" border="0" class="dashboard-icon" />
+                            <div class="text-center col-xs-3 col-sm-3 col-compact">
+                                <a href="student-fee.php" class="dashboard-link-card" style="animation-delay: 0.55s;">
+                                    <i class="fa fa-credit-card-alt"></i>
+                                    <strong>My Fee</strong>
                                 </a>
-                                <br /><strong>My Chat</strong>
                             </div>
-
+                            <div class="text-center col-xs-3 col-sm-3 col-compact">
+                                <a href="student_issue_doc.php" class="dashboard-link-card"
+                                    style="animation-delay: 0.6s;">
+                                    <i class="fa fa-file-pdf-o"></i>
+                                    <strong>Docs</strong>
+                                </a>
+                            </div>
+                            <div class="text-center col-xs-3 col-sm-3 col-compact">
+                                <a href="student_message.php" class="dashboard-link-card"
+                                    style="position: relative; animation-delay: 0.65s;">
+                                    <span class="giit-badge" id="global-chat-badge"
+                                        style="top: 10px; right: 10px; position: absolute;">0</span>
+                                    <i class="fa fa-comments-o"></i>
+                                    <strong>My Chat</strong>
+                                </a>
+                            </div>
                         </div>
-                        <div class="row">
-                            <div class="text-center col-xs-6 col-sm-3">
-                                <a href="digital_locker.php"><img src="images/digilocker.png" width="60px"
-                                        border="0" /></a>
-                                <br /><strong>My Digital Locker</strong>
+                        <div class="row row-compact">
+                            <div class="text-center col-xs-3 col-sm-3 col-compact">
+                                <a href="digital_locker.php" class="dashboard-link-card" style="animation-delay: 0.7s;">
+                                    <i class="fa fa-shield"></i>
+                                    <strong>Digi Locker</strong>
+                                </a>
                             </div>
-                            <div class="text-center col-xs-6 col-sm-3">
-                                <a href="student-job-profile.php"><img src="images/jobs-icon.jpg" border="0" /></a>
-                                <br /><strong>Job Profile</strong>
+                            <div class="text-center col-xs-3 col-sm-3 col-compact">
+                                <a href="student-job-profile.php" class="dashboard-link-card"
+                                    style="animation-delay: 0.75s;">
+                                    <i class="fa fa-rocket"></i>
+                                    <strong>Jobs</strong>
+                                </a>
                             </div>
-                            <div class="text-center col-xs-6 col-sm-3">
-                                <a href="student-online-classes.php"><img src="images/Time.png" border="0" /></a>
-                                <br /><strong>Class Timetable</strong>
+                            <div class="text-center col-xs-3 col-sm-3 col-compact">
+                                <a href="student-online-classes.php" class="dashboard-link-card"
+                                    style="animation-delay: 0.8s;">
+                                    <i class="fa fa-calendar-check-o"></i>
+                                    <strong>Class Schedule</strong>
+                                </a>
                             </div>
-                            <div class="text-center col-xs-6 col-sm-3">
-                                <a href="logmeout.php"><img src="images/gnome-logout.png" border="0" /></a>
-                                <br /><strong>Logout</strong>
+                            <div class="text-center col-xs-3 col-sm-3 col-compact">
+                                <a href="logmeout.php" class="dashboard-link-card"
+                                    style="border-color: rgba(244, 63, 94, 0.2); animation-delay: 0.85s;">
+                                    <i class="fa fa-sign-out"
+                                        style="background: var(--accent); -webkit-background-clip: text; -webkit-text-fill-color: transparent;"></i>
+                                    <strong style="color: var(--accent);">Logout</strong>
+                                </a>
                             </div>
                         </div>
                     </div>
@@ -865,25 +1336,16 @@ if ($s_roll !== '') {
             .then(data => {
                 if (data.has_form) {
                     const html = `
-                    <div class="alert alert-warning alert-dismissible" role="alert" style="border-left: 5px solid #8e24aa; background: #fdf2ff;">
-                        <button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button>
-                        <div class="row">
-                            <div class="col-sm-9">
-                                <h4 style="margin-top:0; color:#8e24aa;"><i class="fa fa-book"></i> Elective Choice Form is Active!</h4>
-                                <p>Please select your specialization and elective subjects for the current semester. <br>
-                                <strong>Deadline: ${data.deadline}</strong></p>
-                            </div>
-                            <div class="col-sm-3 text-right">
-                                ${data.submitted ?
-                            `<button disabled class="btn btn-success" style="margin-top:10px;">
-                                        <i class="fa fa-check-circle"></i> FORM SUBMITTED
-                                     </button>` :
-                            `<button onclick="openElectiveModal()" class="btn btn-primary" style="background:#8e24aa; border:none; margin-top:10px;">
-                                        <i class="fa fa-pencil"></i> FILL FORM NOW
-                                     </button>`
-                        }
-                            </div>
+                    <div class="alert alert-warning alert-compact" role="alert">
+                        <i class="fa fa-star" style="color: #f59e0b; font-size: 1.2rem;"></i>
+                        <div style="flex-grow: 1;">
+                            <div style="font-weight: 700;">Elective Choice Form Active</div>
+                            <small style="color: var(--text-muted);">Deadline: ${data.deadline}</small>
                         </div>
+                        ${data.submitted ?
+                            `<span class="giit-badge" style="background: #10b981; box-shadow: 0 4px 10px rgba(16, 185, 129, 0.3);">Submitted</span>` :
+                            `<button onclick="openElectiveModal()" class="alert-link" style="border:none; cursor:pointer;">Fill Now</button>`
+                        }
                     </div>
                 `;
                     document.getElementById('elective_notification_area').innerHTML = html;
@@ -1128,10 +1590,10 @@ if ($s_roll !== '') {
 
         toast.innerHTML = `
             <div class="toast-header">
-                <span><i class="fa fa-bell toast-icon"></i> New Message</span>
+                <span style="font-weight: 800; color: #6366f1; font-size: 0.85rem;"><i class="fa fa-bell"></i> NEW MESSAGE</span>
                 <button type="button" class="toast-close" onclick="event.stopPropagation(); this.parentElement.parentElement.remove()">&times;</button>
             </div>
-            <div style="font-size: 11px; color: #006699; font-weight: 600;">${title}</div>
+            <div style="font-weight: 700; color: #1e293b; font-size: 0.95rem; margin-bottom: 4px;">${title}</div>
             <div class="toast-body">${body}</div>
         `;
         document.body.appendChild(toast);
@@ -1186,4 +1648,3 @@ if ($s_roll !== '') {
         if (typeof checkElectiveForm === 'function') checkElectiveForm();
     });
 </script>
-<?php include("footer.php"); ?>
