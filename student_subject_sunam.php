@@ -136,11 +136,12 @@ include("header.php");
 
     .welcome-header {
         background: linear-gradient(135deg, #1e1b6e 0%, #312e81 35%, #4f46e5 70%, #818cf8 100%);
-        padding: 12px 20px !important;
-        border-radius: var(--radius-md);
+        padding: 15px 20px !important;
+        border-radius: 0 0 var(--radius-md) var(--radius-md);
         color: white !important;
-        margin-bottom: 20px !important;
-        box-shadow: 0 10px 25px -5px rgba(49, 46, 129, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
+        margin-top: -1px;
+        margin-bottom: 22px !important;
+        box-shadow: 0 10px 25px -5px rgba(49, 46, 129, 0.3);
         display: flex;
         justify-content: space-between;
         align-items: center;
@@ -163,51 +164,140 @@ include("header.php");
 
     .welcome-text {
         font-weight: 800;
-        font-size: 1.05rem;
+        font-size: 1.15rem;
         letter-spacing: -0.025em;
-        text-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-        line-height: 1.1;
+        text-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+        line-height: 1.15;
+        z-index: 2;
     }
 
     .welcome-text span {
         display: block;
         font-size: 0.82rem;
-        font-weight: 400;
-        opacity: 0.82;
-        margin-top: 5px;
+        font-weight: 500;
+        opacity: 0.85;
+        margin-top: 4px;
         letter-spacing: 0.01em;
     }
 
-    .course-info {
-        display: inline-flex;
-        align-items: center;
-        gap: 5px;
-        font-size: 0.68rem;
+    /* ── Sem/Year selector row ─────────────────────── */
+    .sem-selector {
+        display:flex; flex-wrap:wrap; gap:8px;
+        justify-content:center; margin-bottom:18px;
+    }
+    .sem-btn {
+        background: var(--card-bg);
+        color: var(--muted);
+        border: 1.5px solid var(--border);
+        border-radius: 10px;
+        padding: 9px 20px;
+        font-family:'Outfit',sans-serif;
+        font-size:.84rem; font-weight:600;
+        cursor:pointer; transition:all .25s ease;
+        outline:none;
+    }
+    .sem-btn:hover { border-color:var(--primary-lt); color:var(--primary); background:#fff; }
+    .sem-btn.active {
+        background:var(--primary); color:#fff !important;
+        border-color:var(--primary);
+        box-shadow:0 6px 18px rgba(79,70,229,.3);
+    }
+
+    /* ── Tab panels ────────────────────────────────── */
+    .tab-panel { display:none; }
+    .tab-panel.active { display:block; animation: fadeUp .35s ease-out; }
+
+    /* ── Table frame ───────────────────────────────── */
+    .qb-table-frame {
+        background: #a855f7;
+        padding: 8px;
+        border-radius: 20px;
+        box-shadow: 0 20px 40px -12px rgba(168,85,247,.22);
+        animation: fadeUp .4s ease-out both;
+        margin-bottom: 20px;
+    }
+    .qb-table-wrap {
+        background: #fff;
+        border-radius: 12px;
+        overflow-y: auto;
+        max-height: 480px;
+        border: 1px solid rgba(0,0,0,.05);
+    }
+    .qb-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    /* sticky thead */
+    .qb-table thead th {
+        position: sticky; top: 0; z-index: 10;
+        background: #14b8a6; /* VIBRANT TEAL */
+        color: #fff !important;
         font-weight: 700;
-        background: rgba(255, 255, 255, 0.18);
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
-        padding: 4px 10px;
-        border-radius: 50px;
-        color: #fff;
-        border: 1px solid rgba(255, 255, 255, 0.4);
-        box-shadow: 0 4px 18px rgba(49, 46, 129, 0.15);
-        text-transform: uppercase;
+        font-size: .82rem;
+        padding: 12px 14px;
+        border: 1px solid rgba(255,255,255,.1);
+        text-transform: capitalize;
+        white-space: nowrap;
+        letter-spacing: .02em;
     }
 
-    /* Tabs Styling */
-    .nav-pills {
-        margin-bottom: 10px;
-        display: flex;
-        flex-wrap: wrap; /* Wrap tabs instead of scrolling */
-        justify-content: center; /* Center tabs */
-        gap: 8px; /* Consistent spacing */
-        padding: 5px;
+    /* data rows */
+    .qb-table tbody tr.qb-row {
+        transition: background .18s;
     }
+    .qb-table tbody tr.qb-row:nth-child(even) { background: rgba(245,245,255,.6); }
+    .qb-table tbody tr.qb-row:hover { background: rgba(79,70,229,.06); }
+    .qb-table tbody td {
+        padding: 10px 12px;
+        border: 1px solid #e2e8f0;
+        font-size: .82rem;
+        color: var(--text);
+        vertical-align: middle;
+        word-break: break-word;
+    }
+    /* column widths */
+    .qb-table .col-no   { width: 8%;  text-align: center; font-weight: 600; color: var(--muted); }
+    .qb-table .col-name { width: 78%; font-weight: 600; }
+    .qb-table .col-act  { width: 14%; text-align: right; }
 
-    .nav-pills>li {
-        margin-right: 0;
-        margin-bottom: 5px;
+    /* action btn */
+    .action-btn {
+        display: inline-flex; align-items: center; gap: 5px;
+        background: var(--primary); color: #fff !important;
+        padding: 6px 14px; border-radius: 50px;
+        font-size: .73rem; font-weight: 700;
+        text-decoration: none !important; white-space: nowrap;
+        box-shadow: 0 4px 12px rgba(79,70,229,.28);
+        transition: all .22s ease;
+        border: none;
+        cursor: pointer;
+    }
+    .action-btn:hover { background: var(--primary-dk); transform: scale(1.04); box-shadow: 0 6px 18px rgba(79,70,229,.38); }
+    .action-btn i { font-size: .68rem; }
+
+    /* ── Empty state ───────────────────────────────── */
+    .empty-state {
+        text-align: center; padding: 50px 20px;
+        background: var(--card-bg); border-radius: var(--radius-md);
+        border: 1.5px dashed var(--border);
+        animation: fadeUp .4s ease-out;
+    }
+    .empty-state i {
+        font-size: 2.8rem; display: block; margin-bottom: 14px;
+        background: linear-gradient(135deg,#312e81,#818cf8);
+        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .empty-state p { color: var(--muted); font-size: .9rem; margin: 0; font-weight: 500; }
+
+    @media (max-width: 480px) {
+        #subjectPage { margin: 5px auto; padding: 0 0 60px; }
+        .college-branding { padding: 10px !important; border-radius: 16px 16px 0 0 !important; }
+        .welcome-header { border-radius: 0 0 24px 24px !important; margin-bottom: 14px !important; }
+        .sem-btn { padding: 8px 14px; font-size: .78rem; }
+        .qb-table thead th, .qb-table tbody td { padding: 8px 8px; font-size: .72rem; }
+        .action-btn { padding: 5px 10px; font-size: .68rem; }
+        #subjectPage > .sem-selector { padding: 0 10px; }
+        .tab-panel { padding: 0 10px; }
     }
 
     .nav-pills>li>a {
@@ -328,46 +418,48 @@ include("header.php");
         box-shadow: 0 4px 8px rgba(79, 70, 229, 0.2);
     }
 
-    /* Modal Styling */
     .modal-overlay {
         position: fixed;
         top: 0;
         left: 0;
-        right: 0;
-        bottom: 0;
         width: 100vw;
         height: 100vh;
-        background: rgba(15, 23, 42, 0.6);
-        backdrop-filter: blur(10px);
-        -webkit-backdrop-filter: blur(10px);
-        display: none;
+        background: rgba(15, 23, 42, 0.75);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        display: flex !important;
         justify-content: center;
         align-items: center;
-        /* Centered modal */
-        z-index: 10000;
+        z-index: 999999;
         opacity: 0;
-        transition: all 0.3s ease;
+        visibility: hidden;
+        transition: opacity 0.3s ease, visibility 0.3s ease;
+        padding: 20px;
     }
 
     .modal-overlay.show {
         opacity: 1;
-        display: flex;
+        visibility: visible;
     }
 
     .modal-content {
-        background: var(--card-bg);
-        width: 90%;
+        background: white;
+        width: 100%;
         max-width: 650px;
-        border-radius: var(--radius-lg);
-        border: 1px solid var(--glass-border);
-        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+        border-radius: 24px;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
         overflow: hidden;
-        transform: translateY(20px);
-        transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+        transform: scale(0.95);
+        transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+        display: flex;
+        flex-direction: column;
+        max-height: 85vh;
+        margin: 0 !important;
     }
 
     .modal-overlay.show .modal-content {
-        transform: translateY(0);
+        transform: scale(1);
     }
 
     .modal-header {
@@ -600,145 +692,134 @@ include("header.php");
         }
         $sub_stmt->close();
     }
-
-    $query = "SELECT * FROM `course_master` WHERE `course_master_id` = ?";
-    $stmt = $con->prepare($query);
-    $stmt->bind_param("i", $course_id);
-    $stmt->execute();
-    $selectedCourse = $stmt->get_result()->fetch_assoc();
-    $stmt->close();
     ?>
 
     <div class="welcome-header">
         <div class="welcome-text">
-            Subjects & Curriculum
+            Subjects &amp; Curriculum
             <span>Track your course progress and chapters</span>
         </div>
         <div class="course-info">
             <span class="ci-icon"><i class="fa fa-book"></i></span>
             <span>
                 <?php echo htmlspecialchars($_SESSION['course']['course_name'] ?? ''); ?>
-                <span
-                    class="ci-uni"><?php echo htmlspecialchars($_SESSION['course']['university_short_name'] ?? ''); ?></span>
+                <span style="opacity: 0.7; font-size: 0.8em; margin-left: 4px;">(<?php echo htmlspecialchars($_SESSION['course']['university_short_name'] ?? ''); ?>)</span>
             </span>
         </div>
     </div>
 
-    <ul class="nav nav-pills">
-        <?php
-        $max_tabs = ($selectedCourse['course_mode'] == 's' || $selectedCourse['course_mode'] == 'S') ? 6 : 3;
-        for ($i = 1; $i <= $max_tabs; $i++) {
-            $label = ($selectedCourse['course_mode'] == 's' || $selectedCourse['course_mode'] == 'S') ? "Semester $i" : "Year $i";
-            $active = ($i == $current_sem) ? ' class="active"' : '';
-            echo "<li$active><a data-toggle='pill' href='#sem$i'>$label</a></li>";
-        }
-        ?>
-    </ul>
+    <?php
+    $qMode = "SELECT course_mode FROM course_master WHERE course_master_id='$course_id'";
+    $rMode = mysqli_query($con, $qMode);
+    $rowM = mysqli_fetch_array($rMode);
+    $cMode = $rowM['course_mode'] ?? 'N';
+    $max = ($cMode == 's' || $cMode == 'S') ? 6 : 3;
+    $typeLabel = ($cMode == 's' || $cMode == 'S') ? "Semester" : "Year";
+    ?>
 
-    <div class="subject-portal-frame">
-        <div class="tab-content">
-            <?php
-            for ($sem = 1; $sem <= $max_tabs; $sem++) {
-                $active = ($sem == $current_sem) ? 'in active' : '';
-                ?>
-                <div id="sem<?php echo $sem; ?>" class="tab-pane fade <?php echo $active; ?>">
-                    <div class="subject-table-container">
-                        <table class="subject-table">
-                            <thead>
-                                <tr>
-                                    <th>Subject Name</th>
-                                    <th style="text-align: right;">Action</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php
-                                // Fetch Regular Subjects
-                                $query = "SELECT * FROM `subject_master` WHERE `subject_course_id` = ? AND `subject_sem_id` = ? AND `subject_status` = 'active' ORDER BY subject_university_code ASC";
-                                $stmt = $con->prepare($query);
-                                $stmt->bind_param("ii", $course_id, $sem);
-                                $stmt->execute();
-                                $results = $stmt->get_result();
+    <!-- ── Semester / Year selector ── -->
+    <div class="sem-selector" id="semSelector">
+        <?php for ($i = 1; $i <= $max; $i++): ?>
+            <button 
+                class="sem-btn <?= $i == $current_sem ? 'active' : '' ?>" 
+                data-tab="tab<?= $i ?>"
+                id="semBtn<?= $i ?>">
+                <?= $typeLabel ?> <?= $i ?>
+            </button>
+        <?php endfor; ?>
+    </div>
 
-                                // Fetch Elective Subjects
-                                $elective_subjects = [];
-                                if ($elective_group_id > 0) {
-                                    $es_query = "SELECT * FROM elective_subjects WHERE group_id = ? AND semester = ? AND status = 1 ORDER BY elective_no ASC";
-                                    $es_stmt = $con->prepare($es_query);
-                                    $es_stmt->bind_param("is", $elective_group_id, $sem);
-                                    $es_stmt->execute();
-                                    $es_res = $es_stmt->get_result();
-                                    while ($es_row = $es_res->fetch_assoc()) {
-                                        $elective_subjects[] = $es_row;
-                                    }
-                                    $es_stmt->close();
+    <!-- ── Tab Panels ── -->
+    <?php for ($sem = 1; $sem <= $max; $sem++): ?>
+    <div class="tab-panel <?= $sem == $current_sem ? 'active' : '' ?>" id="tab<?= $sem ?>">
+        <div class="qb-table-frame">
+            <div class="qb-table-wrap">
+                <table class="qb-table">
+                    <thead>
+                        <tr>
+                            <th class="col-no">#</th>
+                            <th class="col-name">Subject Name</th>
+                            <th class="col-act">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php
+                        // Fetch Regular Subjects
+                        $query = "SELECT * FROM `subject_master` WHERE `subject_course_id` = ? AND `subject_sem_id` = ? AND `subject_status` = 'active' ORDER BY subject_university_code ASC";
+                        $stmt = $con->prepare($query);
+                        $stmt->bind_param("ii", $course_id, $sem);
+                        $stmt->execute();
+                        $results = $stmt->get_result();
+
+                        // Fetch Elective Subjects
+                        $elective_subjects = [];
+                        if ($elective_group_id > 0) {
+                            $es_query = "SELECT * FROM elective_subjects WHERE group_id = ? AND semester = ? AND status = 1 ORDER BY elective_no ASC";
+                            $es_stmt = $con->prepare($es_query);
+                            $es_stmt->bind_param("is", $elective_group_id, $sem);
+                            $es_stmt->execute();
+                            $es_res = $es_stmt->get_result();
+                            while ($es_row = $es_res->fetch_assoc()) {
+                                $elective_subjects[] = $es_row;
+                            }
+                            $es_stmt->close();
+                        }
+
+                        $serial = 0;
+                        if ($results->num_rows > 0 || !empty($elective_subjects)):
+                            // 1. Electives
+                            foreach ($elective_subjects as $es):
+                                $eNo = $es['elective_no'];
+                                $options_count = 0;
+                                foreach ($elective_subjects as $tmp) if ($tmp['elective_no'] == $eNo) $options_count++;
+                                if ($options_count > 1) {
+                                    if (!isset($approved_choices[$eNo]) || $approved_choices[$eNo] != $es['id']) continue;
                                 }
+                                $serial++;
+                        ?>
+                            <tr class="qb-row">
+                                <td class="col-no"><?= $serial ?></td>
+                                <td class="col-name">
+                                    <?= htmlspecialchars($es['subject_name']) ?>
+                                    <span class="elective-badge"><?= htmlspecialchars($elective_group_name) ?></span>
+                                </td>
+                                <td class="col-act">
+                                    <button onclick="showChapters(<?= $es['id'] ?>, '<?= htmlspecialchars($es['subject_name']) ?>')" class="action-btn">
+                                        <i class="fa fa-list"></i> Chapters
+                                    </button>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
 
-                                if ($results->num_rows > 0 || !empty($elective_subjects)) {
-                                    // Display Elective Subjects first
-                                    foreach ($elective_subjects as $es) {
-                                        $eNo = $es['elective_no'];
-                                        $options_count = 0;
-                                        foreach ($elective_subjects as $tmp)
-                                            if ($tmp['elective_no'] == $eNo)
-                                                $options_count++;
-                                        if ($options_count > 1) {
-                                            if (!isset($approved_choices[$eNo]) || $approved_choices[$eNo] != $es['id'])
-                                                continue;
-                                        }
-                                        ?>
-                                        <tr>
-                                            <td>
-                                                <div class="subject-info-cell">
-                                                    <span
-                                                        class="subject-code"><?php echo htmlspecialchars($es['elective_no']); ?></span>
-                                                    <span class="subject-name">
-                                                        <?php echo htmlspecialchars($es['subject_name']); ?>
-                                                        <span
-                                                            class="elective-badge"><?php echo htmlspecialchars($elective_group_name); ?></span>
-                                                    </span>
-                                                </div>
-                                            </td>
-                                            <td style="text-align: right;">
-                                                <span
-                                                    style="font-size: 0.7rem; color: var(--text-muted); font-style: italic;">Elective
-                                                    Assigned</span>
-                                            </td>
-                                        </tr>
-                                    <?php }
+                        <?php 
+                            // 2. Regular Subjects
+                            while ($subject = $results->fetch_assoc()): 
+                                $serial++;
+                        ?>
+                            <tr class="qb-row">
+                                <td class="col-no"><?= $serial ?></td>
+                                <td class="col-name"><?= htmlspecialchars($subject['subject_name']) ?></td>
+                                <td class="col-act">
+                                    <button onclick="showChapters(<?= $subject['subject_master_id'] ?>, '<?= htmlspecialchars($subject['subject_name']) ?>')" class="action-btn">
+                                        <i class="fa fa-list"></i> Chapters
+                                    </button>
+                                </td>
+                            </tr>
+                        <?php endwhile; ?>
 
-                                    // Display Regular Subjects
-                                    while ($subject = $results->fetch_assoc()) {
-                                        $sub_id = $subject['subject_master_id'];
-                                        $code = !empty($subject['subject_university_code']) ? htmlspecialchars($subject['subject_university_code']) : '--';
-                                        $name = htmlspecialchars($subject['subject_name']);
-                                        ?>
-                                        <tr>
-                                            <td>
-                                                <div class="subject-info-cell">
-                                                    <span class="subject-code"><?php echo $code; ?></span>
-                                                    <span class="subject-name"><?php echo $name; ?></span>
-                                                </div>
-                                            </td>
-                                            <td style="text-align: right;">
-                                                <button class="btn-view-chapters"
-                                                    onclick="showChapters(<?php echo $sub_id; ?>, '<?php echo addslashes($name); ?>')">
-                                                    <i class="fas fa-list-ul"></i> View Chapters
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    <?php }
-                                } else {
-                                    echo '<tr><td colspan="4" class="no-data">No subjects available for this ' . (($selectedCourse['course_mode'] == 's' || $selectedCourse['course_mode'] == 'S') ? 'semester' : 'year') . '.</td></tr>';
-                                }
-                                $stmt->close();
-                                ?>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            <?php } ?>
+                        <?php else: ?>
+                            <tr>
+                                <td colspan="3" style="text-align: center; padding: 40px; color: #64748b;">
+                                    No subjects found for this <?= strtolower($typeLabel) ?>.
+                                </td>
+                            </tr>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
+    <?php endfor; ?>
 </div>
 
 <!-- Chapter Modal -->
@@ -757,51 +838,79 @@ include("header.php");
 </div>
 
 <script type="text/javascript">
+    document.querySelectorAll('.sem-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.sem-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+            btn.classList.add('active');
+            document.getElementById(btn.getAttribute('data-tab')).classList.add('active');
+        });
+    });
+
     function showChapters(subjectId, subjectName) {
         const modal = document.getElementById('chapterModal');
         const modalBody = document.getElementById('modalBody');
         const modalTitle = document.getElementById('modalSubjectName');
 
+        // Move to body BEFORE showing to avoid parent transform/z-index issues
+        if (modal.parentElement !== document.body) {
+            document.body.appendChild(modal);
+        }
+
         modalTitle.innerText = subjectName;
         modalBody.innerHTML = '<div style="padding: 40px; text-align: center;"><i class="fas fa-spinner fa-spin fa-2x" style="color: var(--primary);"></i><p style="margin-top:15px; color: var(--text-muted);">Loading curriculum...</p></div>';
 
         modal.classList.add('show');
-        document.body.style.overflow = 'hidden'; // Prevent scroll
-
+        document.body.style.overflow = 'hidden'; 
+        
         fetch(`?ajax=chapters&subject_id=${subjectId}`)
             .then(res => res.json())
             .then(chapters => {
                 if (!chapters || chapters.length === 0) {
                     modalBody.innerHTML = '<div style="padding: 30px; text-align: center; color: var(--text-muted); font-style: italic;"><i class="fas fa-info-circle fa-2x" style="margin-bottom:10px; opacity:0.5;"></i><p>No chapters available for this subject yet.</p></div>';
                 } else {
-                    let html = '<div class="chapter-container"><table class="subject-table"><thead><tr><th style="width: 80px;">No.</th><th>Chapter Name</th><th style="text-align: right;">Status</th></tr></thead><tbody>';
+                    let html = `
+                        <div class="qb-table-frame" style="padding:4px; box-shadow:none;">
+                            <div class="qb-table-wrap" style="max-height: 400px;">
+                                <table class="qb-table">
+                                    <thead>
+                                        <tr>
+                                            <th class="col-no">#</th>
+                                            <th class="col-name">Chapter Name</th>
+                                            <th class="col-act">Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>`;
+                    
                     chapters.forEach(c => {
-                        html += `<tr>
-                            <td style="font-weight: 800; color: var(--primary);">${c.chapter_no}</td>
-                            <td style="font-weight: 500;">${c.chapter_name}</td>
-                            <td style="text-align: right;"><span style="font-size: 0.75rem; color: #10b981; font-weight: 600;"><i class="fas fa-check-circle"></i> ${c.chapter_status}</span></td>
-                        </tr>`;
+                        html += `
+                            <tr class="qb-row">
+                                <td class="col-no">${c.chapter_no}</td>
+                                <td class="col-name">${c.chapter_name}</td>
+                                <td class="col-act">
+                                    <span style="font-size: 0.75rem; color: #10b981; font-weight: 700;">
+                                        <i class="fas fa-check-circle"></i> ${c.chapter_status}
+                                    </span>
+                                </td>
+                            </tr>`;
                     });
-                    html += '</tbody></table></div>';
+                    
+                    html += '</tbody></table></div></div>';
                     modalBody.innerHTML = html;
                 }
             })
             .catch(err => {
-                modalBody.innerHTML = '<div style="padding: 20px; color: #ef4444; text-align: center;">Error loading chapters. Please try again.</div>';
+                modalBody.innerHTML = '<div style="padding: 20px; color: #ef4444; text-align: center;">Error loading curriculum data.</div>';
             });
     }
 
     function closeModal() {
-        const modal = document.getElementById('chapterModal');
-        modal.classList.remove('show');
+        document.getElementById('chapterModal').classList.remove('show');
         document.body.style.overflow = '';
     }
 
-    // Close on outside click
-    window.onclick = function (event) {
+    window.onclick = function(event) {
         const modal = document.getElementById('chapterModal');
-        if (event.target == modal) {
-            closeModal();
-        }
+        if (event.target == modal) closeModal();
     }
 </script>
