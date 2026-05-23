@@ -657,18 +657,111 @@ if ($s_roll !== '') {
         border-color: #818cf8;
     }
 
-    .dashboard-link-card i {
-        font-size: 28px;
+    .icon-box {
+        width: 48px;
+        height: 48px;
+        border-radius: 18px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
         margin-bottom: 12px;
-        background: linear-gradient(135deg, #312e81 0%, #818cf8 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        transition: transform 0.3s ease;
+        transition: all 0.3s ease;
+        background: transparent;
+        border: 1.5px solid rgba(0, 0, 0, 0.05);
     }
 
-    .dashboard-link-card:hover i {
-        transform: rotate(-10deg) scale(1.1);
+    .dashboard-link-card:hover .icon-box {
+        transform: scale(1.1) rotate(-5deg);
+        background: white;
+        border-color: rgba(79, 70, 229, 0.1);
     }
+
+    /* Icon Color Schemes - Themed Circles & Borders */
+    .icon-blue {
+        background: #eff6ff !important;
+        border-color: #dbeafe !important;
+    }
+
+    .icon-blue i {
+        color: #2563eb !important;
+        -webkit-text-fill-color: #2563eb !important;
+    }
+
+    .icon-emerald {
+        background: #ecfdf5 !important;
+        border-color: #d1fae5 !important;
+    }
+
+    .icon-emerald i {
+        color: #059669 !important;
+        -webkit-text-fill-color: #059669 !important;
+    }
+
+    .icon-violet {
+        background: #f5f3ff !important;
+        border-color: #ede9fe !important;
+    }
+
+    .icon-violet i {
+        color: #7c3aed !important;
+        -webkit-text-fill-color: #7c3aed !important;
+    }
+
+    .icon-amber {
+        background: #fffbeb !important;
+        border-color: #fef3c7 !important;
+    }
+
+    .icon-amber i {
+        color: #d97706 !important;
+        -webkit-text-fill-color: #d97706 !important;
+    }
+
+    .icon-orange {
+        background: #fff7ed !important;
+        border-color: #ffedd5 !important;
+    }
+
+    .icon-orange i {
+        color: #ea580c !important;
+        -webkit-text-fill-color: #ea580c !important;
+    }
+
+    .icon-cyan {
+        background: #ecfeff !important;
+        border-color: #cffafe !important;
+    }
+
+    .icon-cyan i {
+        color: #0891b2 !important;
+        -webkit-text-fill-color: #0891b2 !important;
+    }
+
+    .icon-rose {
+        background: #fff1f2 !important;
+        border-color: #ffe4e6 !important;
+    }
+
+    .icon-rose i {
+        color: #e11d48 !important;
+        -webkit-text-fill-color: #e11d48 !important;
+    }
+
+    .icon-logout {
+        background: #fef2f2 !important;
+        border-color: #fee2e2 !important;
+    }
+
+    .icon-logout i {
+        color: #dc2626 !important;
+        -webkit-text-fill-color: #dc2626 !important;
+    }
+
+    .icon-logout+strong {
+        color: #dc2626 !important;
+    }
+
+
 
     .dashboard-link-card strong {
         font-size: 0.75rem;
@@ -960,28 +1053,17 @@ if ($s_roll !== '') {
             transform: none !important;
         }
 
-        /* 5. Icon: coloured rounded pill instead of gradient text */
+        /* 5. Icon: color schemes handled by classes above */
         .dashboard-link-card i {
             font-size: 20px !important;
             margin-bottom: 6px !important;
             width: 42px !important;
             height: 42px !important;
             border-radius: 13px !important;
-            background: linear-gradient(135deg, rgba(79, 70, 229, 0.11) 0%, rgba(129, 140, 248, 0.2) 100%) !important;
-            -webkit-background-clip: unset !important;
-            background-clip: unset !important;
-            -webkit-text-fill-color: #4f46e5 !important;
-            color: #4f46e5 !important;
             display: flex !important;
             align-items: center !important;
             justify-content: center !important;
             transition: none !important;
-        }
-
-        /* Logout icon gets a red pill */
-        a[href="logmeout.php"] i {
-            background: linear-gradient(135deg, rgba(239, 68, 68, 0.1) 0%, rgba(252, 165, 165, 0.2) 100%) !important;
-            -webkit-text-fill-color: #ef4444 !important;
         }
 
         /* 6. Label text */
@@ -1072,29 +1154,37 @@ if ($s_roll !== '') {
                             <div class="text-center col-xs-3 col-sm-3 col-compact">
                                 <a href="student-profile.php" class="dashboard-link-card"
                                     style="animation-delay: 0.1s;">
-                                    <i class="fa fa-user-circle"></i>
+                                    <div class="icon-box icon-blue">
+                                        <i class="fa fa-user-circle"></i>
+                                    </div>
                                     <strong>Profile</strong>
                                 </a>
                             </div>
                             <div class="text-center col-xs-3 col-sm-3 col-compact">
                                 <a href="student_subject.php" class="dashboard-link-card"
                                     style="animation-delay: 0.15s;">
-                                    <i class="fa fa-book"></i>
+                                    <div class="icon-box icon-emerald">
+                                        <i class="fa fa-book"></i>
+                                    </div>
                                     <strong>Subjects</strong>
                                 </a>
                             </div>
                             <div class="text-center col-xs-3 col-sm-3 col-compact">
                                 <a href="student-assignment.php" class="dashboard-link-card"
                                     style="animation-delay: 0.2s;">
-                                    <i class="fa fa-tasks"></i>
+                                    <div class="icon-box icon-violet">
+                                        <i class="fa fa-tasks"></i>
+                                    </div>
                                     <strong>Assignment</strong>
                                 </a>
                             </div>
                             <div class="text-center col-xs-3 col-sm-3 col-compact">
                                 <a href="student-questionbank.php" class="dashboard-link-card"
                                     style="animation-delay: 0.25s;">
-                                    <i class="fa fa-database"></i>
-                                    <strong>Q. Bank</strong>
+                                    <div class="icon-box icon-amber">
+                                        <i class="fa fa-database"></i>
+                                    </div>
+                                    <strong>Question Bank</strong>
                                 </a>
                             </div>
                         </div>
@@ -1102,27 +1192,35 @@ if ($s_roll !== '') {
                             <div class="text-center col-xs-3 col-sm-3 col-compact">
                                 <a href="student-university-questions.php" class="dashboard-link-card"
                                     style="animation-delay: 0.3s;">
-                                    <i class="fa fa-university"></i>
-                                    <strong>Uni Ques</strong>
+                                    <div class="icon-box icon-orange">
+                                        <i class="fa fa-university"></i>
+                                    </div>
+                                    <strong>University Ques</strong>
                                 </a>
                             </div>
                             <div class="text-center col-xs-3 col-sm-3 col-compact">
                                 <a href="stud-class-summary.php" class="dashboard-link-card"
                                     style="animation-delay: 0.35s;">
-                                    <i class="fa fa-bar-chart"></i>
-                                    <strong>Summary</strong>
+                                    <div class="icon-box icon-cyan">
+                                        <i class="fa fa-bar-chart"></i>
+                                    </div>
+                                    <strong>Class Summary</strong>
                                 </a>
                             </div>
                             <div class="text-center col-xs-3 col-sm-3 col-compact">
                                 <a href="le/index.php" class="dashboard-link-card" style="animation-delay: 0.4s;">
-                                    <i class="fa fa-language"></i>
-                                    <strong>English</strong>
+                                    <div class="icon-box icon-rose">
+                                        <i class="fa fa-language"></i>
+                                    </div>
+                                    <strong>Learn English</strong>
                                 </a>
                             </div>
                             <div class="text-center col-xs-3 col-sm-3 col-compact">
                                 <a href="student-syllabus.php?university_id=<?php echo urlencode($university_id); ?>&course_id=<?php echo urlencode($course_id); ?>"
                                     class="dashboard-link-card" style="animation-delay: 0.45s;">
-                                    <i class="fa fa-list-alt"></i>
+                                    <div class="icon-box icon-blue">
+                                        <i class="fa fa-list-alt"></i>
+                                    </div>
                                     <strong>Syllabus</strong>
                                 </a>
                             </div>
@@ -1131,29 +1229,37 @@ if ($s_roll !== '') {
                             <div class="text-center col-xs-3 col-sm-3 col-compact">
                                 <a href="student_course.php?university_id=<?php echo urlencode($university_id); ?>&course_id=<?php echo urlencode($course_id); ?>"
                                     class="dashboard-link-card" style="animation-delay: 0.5s;">
-                                    <i class="fa fa-cubes"></i>
+                                    <div class="icon-box icon-emerald">
+                                        <i class="fa fa-cubes"></i>
+                                    </div>
                                     <strong>Course</strong>
                                 </a>
                             </div>
                             <div class="text-center col-xs-3 col-sm-3 col-compact">
                                 <a href="student-fee.php" class="dashboard-link-card" style="animation-delay: 0.55s;">
-                                    <i class="fa fa-credit-card-alt"></i>
+                                    <div class="icon-box icon-violet">
+                                        <i class="fa fa-credit-card-alt"></i>
+                                    </div>
                                     <strong>My Fee</strong>
                                 </a>
                             </div>
                             <div class="text-center col-xs-3 col-sm-3 col-compact">
                                 <a href="student_issue_doc.php" class="dashboard-link-card"
                                     style="animation-delay: 0.6s;">
-                                    <i class="fa fa-file-pdf-o"></i>
-                                    <strong>Docs</strong>
+                                    <div class="icon-box icon-amber">
+                                        <i class="fa fa-file-pdf-o"></i>
+                                    </div>
+                                    <strong>Std. Docs</strong>
                                 </a>
                             </div>
                             <div class="text-center col-xs-3 col-sm-3 col-compact">
-                                <a href="student_message.php" class="dashboard-link-card"
+                                <a href="<?php echo (strpos($_SERVER['SCRIPT_NAME'], '/admission/') !== false) ? '../' : ''; ?>student_message.php" class="dashboard-link-card"
                                     style="position: relative; animation-delay: 0.65s;">
                                     <span class="giit-badge" id="global-chat-badge"
                                         style="top: 10px; right: 10px; position: absolute;">0</span>
-                                    <i class="fa fa-comments-o"></i>
+                                    <div class="icon-box icon-orange">
+                                        <i class="fa fa-comments-o"></i>
+                                    </div>
                                     <strong>My Chat</strong>
                                 </a>
                             </div>
@@ -1161,30 +1267,37 @@ if ($s_roll !== '') {
                         <div class="row row-compact">
                             <div class="text-center col-xs-3 col-sm-3 col-compact">
                                 <a href="digital_locker.php" class="dashboard-link-card" style="animation-delay: 0.7s;">
-                                    <i class="fa fa-shield"></i>
+                                    <div class="icon-box icon-cyan">
+                                        <i class="fa fa-shield"></i>
+                                    </div>
                                     <strong>Digi Locker</strong>
                                 </a>
                             </div>
                             <div class="text-center col-xs-3 col-sm-3 col-compact">
                                 <a href="student-job-profile.php" class="dashboard-link-card"
                                     style="animation-delay: 0.75s;">
-                                    <i class="fa fa-rocket"></i>
+                                    <div class="icon-box icon-rose">
+                                        <i class="fa fa-rocket"></i>
+                                    </div>
                                     <strong>Jobs</strong>
                                 </a>
                             </div>
                             <div class="text-center col-xs-3 col-sm-3 col-compact">
                                 <a href="student-online-classes.php" class="dashboard-link-card"
                                     style="animation-delay: 0.8s;">
-                                    <i class="fa fa-calendar-check-o"></i>
+                                    <div class="icon-box icon-blue">
+                                        <i class="fa fa-calendar-check-o"></i>
+                                    </div>
                                     <strong>Class Schedule</strong>
                                 </a>
                             </div>
                             <div class="text-center col-xs-3 col-sm-3 col-compact">
                                 <a href="logmeout.php" class="dashboard-link-card"
                                     style="border-color: rgba(244, 63, 94, 0.2); animation-delay: 0.85s;">
-                                    <i class="fa fa-sign-out"
-                                        style="background: var(--accent); -webkit-background-clip: text; -webkit-text-fill-color: transparent;"></i>
-                                    <strong style="color: var(--accent);">Logout</strong>
+                                    <div class="icon-box icon-logout">
+                                        <i class="fa fa-sign-out"></i>
+                                    </div>
+                                    <strong>Logout</strong>
                                 </a>
                             </div>
                         </div>
@@ -1356,64 +1469,7 @@ if ($s_roll !== '') {
     setInterval(checkDocumentRequest, 45000);
     setInterval(checkElectiveForm, 45000);
 
-    // Background Chat Check
-    let studentId = <?= $_SESSION['s_id'] ?>;
-    let globalLastMessageId = null;
-    let unreadCount = 0;
-    let lastReadId = parseInt(localStorage.getItem('giitchat_last_read_id_' + studentId)) || 0;
-
-    function checkChatUpdates() {
-        const lastIdParam = globalLastMessageId !== null ? globalLastMessageId : 0;
-        fetch(`student_message.php?ajax=check_updates&last_id=${lastIdParam}`)
-            .then(res => res.json())
-            .then(data => {
-                if (data.success && data.new_message) {
-                    const msg = data.new_message;
-
-                    // On first run, we anchor the real-time checker
-                    if (globalLastMessageId === null) {
-                        globalLastMessageId = msg.id;
-
-                        // BUT, if this message is newer than what we last READ, show badge
-                        if (msg.id > lastReadId) {
-                            unreadCount = 1; // At least one
-                            updateUINotificationBadge('#global-chat-badge', 'New');
-                        }
-                        return;
-                    }
-
-                    globalLastMessageId = msg.id;
-                    unreadCount++;
-                    updateUINotificationBadge('#global-chat-badge', unreadCount);
-
-                    GIITNotification.show(
-                        `New Message: ${msg.source_name}`,
-                        msg.content,
-                        'images/agt_announcements.png',
-                        () => { window.location.href = 'student_message.php'; }
-                    );
-                } else if (data.success && globalLastMessageId === null) {
-                    globalLastMessageId = 0;
-
-                    // If no "new" messages found in last_id check, still check if overall latest > lastRead
-                    checkInitialUnread();
-                }
-            });
-    }
-
-    function checkInitialUnread() {
-        fetch(`student_message.php?ajax=get_latest_id`)
-            .then(res => res.json())
-            .then(data => {
-                if (data.success && data.max_id > lastReadId) {
-                    updateUINotificationBadge('#global-chat-badge', 'New', true);
-                }
-            });
-    }
-
-
-    setInterval(checkChatUpdates, 5000);
-    setTimeout(checkChatUpdates, 1000);
+    // Polling handled by initChatNotifications() at bottom of file
 
 
     // Initial check on page load
@@ -1555,6 +1611,7 @@ if ($s_roll !== '') {
     let lastChatId = null; // Changed to null to allow initialization from localStorage
 
     function initChatNotifications() {
+        const pathPrefix = window.location.pathname.includes('/admission/') ? '../' : '';
         // Use student ID for personalized storage
         const studentId = <?= $_SESSION['s_id'] ?>;
         const storageKey = 'giitchat_last_read_id_' + studentId;
@@ -1564,13 +1621,10 @@ if ($s_roll !== '') {
 
         if (savedId) {
             lastChatId = parseInt(savedId);
-            // Start Polling immediately if we have a baseline
             setInterval(checkNewChatMessages, 5000);
-            // Check once immediately to catch messages sent since last logout
             checkNewChatMessages();
         } else {
-            // First time or cleared storage: Get latest from server
-            fetch('student_message.php?ajax=get_latest_id')
+            fetch(pathPrefix + 'student_message.php?ajax=get_latest_id')
                 .then(r => r.json())
                 .then(data => {
                     if (data.success) {
@@ -1582,10 +1636,11 @@ if ($s_roll !== '') {
     }
 
     function showToast(title, body) {
+        const pathPrefix = window.location.pathname.includes('/admission/') ? '../' : '';
         const toast = document.createElement('div');
         toast.className = 'custom-toast';
         toast.onclick = () => {
-            window.location.href = 'student_message.php';
+            window.location.href = pathPrefix + 'student_message.php';
         };
 
         toast.innerHTML = `
@@ -1609,8 +1664,9 @@ if ($s_roll !== '') {
 
     function checkNewChatMessages() {
         if (lastChatId === null) return;
+        const pathPrefix = window.location.pathname.includes('/admission/') ? '../' : '';
 
-        fetch(`student_message.php?ajax=check_updates&last_id=${lastChatId}`)
+        fetch(pathPrefix + `student_message.php?ajax=check_updates&last_id=${lastChatId}`)
             .then(r => r.json())
             .then(data => {
                 if (data.success && data.new_message) {
@@ -1630,7 +1686,7 @@ if ($s_roll !== '') {
                             "New Message from " + msg.source_name,
                             msg.content,
                             'images/message.png',
-                            () => { window.location.href = 'student_message.php'; }
+                            () => { window.location.href = pathPrefix + 'student_message.php'; }
                         );
                     }
 

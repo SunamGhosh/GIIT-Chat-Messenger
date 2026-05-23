@@ -4,10 +4,121 @@ $DOC_ROOT = $_SERVER["DOCUMENT_ROOT"];
 require_once("$DOC_ROOT/dn_script/connect.php");
 require_once("$DOC_ROOT/validator/validate_gs.php");
 
+
 if (file_exists("functions.php")) {
     include("functions.php");
 }
-require_once("fcm_helper.php");
+if (file_exists("firebase_helper.php")) {
+    include("firebase_helper.php");
+}
+
+/**
+ * Expo Push Notification Helper
+ */
+class ExpoHelper
+{
+    private static $expo_api_url = 'https://exp.host/--/api/v2/push/send';
+
+    public static function sendNotification($to, $title, $body, $data = [])
+    {
+        if (empty($to))
+            return ['error' => 'No recipients'];
+        $notifications = [];
+        $recipients = is_array($to) ? $to : [$to];
+        foreach ($recipients as $token) {
+            if (strpos($token, 'ExponentPushToken') !== 0 && strpos($token, 'ExpoPushToken') !== 0)
+                continue;
+            $notifications[] = [
+                'to' => $token,
+                'title' => $title,
+                'body' => $body,
+                'data' => $data,
+                'sound' => 'default',
+                'priority' => 'high',
+                'channelId' => 'default',
+                'badge' => 1
+            ];
+        }
+        if (empty($notifications))
+            return ['error' => 'No valid tokens'];
+        $chunks = array_chunk($notifications, 100);
+        $results = [];
+        foreach ($chunks as $chunk) {
+            $ch = curl_init();
+            curl_setopt($ch, CURLOPT_URL, self::$expo_api_url);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json', 'Accept: application/json', 'Accept-Encoding: gzip, deflate']);
+            curl_setopt($ch, CURLOPT_POST, 1);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($chunk));
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            $response = curl_exec($ch);
+            if (curl_errno($ch)) {
+                error_log("Expo Push Error: " . curl_error($ch));
+            }
+            $results[] = json_decode($response, true);
+            curl_close($ch);
+        }
+        return $results;
+    }
+
+    /**
+     * Get all push tokens for a set of student IDs
+     */
+    public static function getStudentTokens($con, $student_ids)
+    {
+        if (empty($student_ids))
+            return [];
+        $ids = is_array($student_ids) ? $student_ids : [$student_ids];
+        $ids_str = implode(',', array_map('intval', $ids));
+
+        $tokens = [];
+
+        // 1. Get from new unified table
+        $res1 = $con->query("SELECT push_token FROM user_push_tokens WHERE user_id IN ($ids_str) AND user_role = 'student'");
+        if ($res1) {
+            while ($row = $res1->fetch_assoc())
+                $tokens[] = $row['push_token'];
+        }
+
+        // 2. Get from legacy student table
+        $res2 = $con->query("SELECT expo_token FROM student WHERE s_id IN ($ids_str) AND expo_token IS NOT NULL");
+        if ($res2) {
+            while ($row = $res2->fetch_assoc())
+                $tokens[] = $row['expo_token'];
+        }
+
+        return array_unique($tokens);
+    }
+
+    /**
+     * Smart Send: Routes to Expo or Firebase based on token format
+     */
+    public static function routeNotification($con, $target_ids, $title, $body, $data = [])
+    {
+        $all_tokens = self::getStudentTokens($con, $target_ids);
+        if (empty($all_tokens))
+            return ['error' => 'No tokens found'];
+
+        $expo_tokens = [];
+        $fcm_tokens = [];
+
+        foreach ($all_tokens as $token) {
+            if (strpos($token, 'ExponentPushToken') === 0 || strpos($token, 'ExpoPushToken') === 0) {
+                $expo_tokens[] = $token;
+            } else {
+                $fcm_tokens[] = $token;
+            }
+        }
+
+        $results = [];
+        if (!empty($expo_tokens)) {
+            $results['expo'] = self::sendNotification($expo_tokens, $title, $body, $data);
+        }
+        if (!empty($fcm_tokens) && class_exists('FirebaseHelper')) {
+            $results['firebase'] = FirebaseHelper::sendNotification($fcm_tokens, $title, $body, $data);
+        }
+        return $results;
+    }
+}
 
 // Authentication Check - Following Admission Portal Structure
 $is_authenticated = false;
@@ -38,6 +149,20 @@ if (isset($_POST['POST_TYPE'])) {
         ob_clean();
     header('Content-Type: application/json');
     $type = $_POST['POST_TYPE'];
+    if ($type === 'save_expo_token') {
+        $token = mysqli_real_escape_string($con, $_POST['token'] ?? '');
+        if (!empty($token) && !empty($faculty_id)) {
+            // Table creation handled manually by user
+            $stmt = $con->prepare("INSERT INTO user_push_tokens (user_id, user_role, push_token) VALUES (?, 'faculty', ?) ON DUPLICATE KEY UPDATE last_updated = NOW()");
+            $stmt->bind_param("is", $faculty_id, $token);
+            $stmt->execute();
+            $stmt->close();
+            echo json_encode(['success' => true, 'message' => 'Faculty token saved']);
+        } else {
+            echo json_encode(['error' => 'Missing data or session']);
+        }
+        exit;
+    }
 
     if ($type === 'SEND_MESSAGE') {
         $content = $_POST['content'] ?? '';
@@ -46,6 +171,34 @@ if (isset($_POST['POST_TYPE'])) {
         $course = $_POST['course'] ?? '';
         $semester = $_POST['semester'] ?? '';
         $groupId = $_POST['groupId'] ?? '';
+
+        // File upload processing
+        $file_path = null;
+        $file_name = null;
+        $file_type = null;
+
+        if (isset($_FILES['file']) && $_FILES['file']['error'] == UPLOAD_ERR_OK) {
+            $upload_dir = 'chatfileuploads/';
+            if (!is_dir($upload_dir)) {
+                mkdir($upload_dir, 0777, true);
+            }
+            $orig_name = $_FILES['file']['name'];
+            $file_ext = strtolower(pathinfo($orig_name, PATHINFO_EXTENSION));
+            $allowed_exts = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'png', 'jpg', 'jpeg', 'gif', 'zip', 'rar'];
+            
+            if (in_array($file_ext, $allowed_exts)) {
+                $new_filename = time() . '_' . uniqid() . '.' . $file_ext;
+                $target_path = $upload_dir . $new_filename;
+                if (move_uploaded_file($_FILES['file']['tmp_name'], $target_path)) {
+                    $file_path = $target_path;
+                    $file_name = $orig_name;
+                    $file_type = $_FILES['file']['type'];
+                }
+            } else {
+                echo json_encode(['error' => 1, 'message' => 'Invalid file extension. Allowed extensions: ' . implode(', ', $allowed_exts)]);
+                exit;
+            }
+        }
 
         // NEW: If sending to a session (no groupId but filters present), make it a tracked broadcast
         if (empty($groupId) && (!empty($uni) || !empty($session) || !empty($course) || !empty($semester))) {
@@ -68,50 +221,80 @@ if (isset($_POST['POST_TYPE'])) {
             // Fetch exclusions for this session if it's a session-based broadcast
             $exclusion_key = !empty($session) ? "SES-" . $session : "GLOBAL";
 
-            $std_query = $con->query("SELECT s_id, fcm_token FROM student WHERE $where_str AND s_id NOT IN (SELECT student_id FROM chat_group_exclusions WHERE group_key = '$exclusion_key')");
+            $std_query = $con->query("SELECT s_id FROM student WHERE $where_str AND s_id NOT IN (SELECT student_id FROM chat_group_exclusions WHERE group_key = '$exclusion_key')");
             $success_count = 0;
-            $tokens = [];
             if ($std_query) {
                 while ($std = $std_query->fetch_assoc()) {
                     $s_id = $std['s_id'];
-                    $ins = $con->prepare("INSERT INTO messages (sender_id, receiver_id, content, university, session, course, semester, groupId, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())");
-                    $ins->bind_param("iissssss", $faculty_id, $s_id, $content, $uni, $session, $course, $semester, $broadcast_id);
-                    $ins->execute();
-                    $ins->close();
-                    
-                    if (!empty($std['fcm_token'])) {
-                        $tokens[] = $std['fcm_token'];
+                    $ins = $con->prepare("INSERT INTO messages (sender_id, receiver_id, content, university, session, course, semester, groupId, file_path, file_name, file_type, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())");
+                    $ins->bind_param("iisssssssss", $faculty_id, $s_id, $content, $uni, $session, $course, $semester, $broadcast_id, $file_path, $file_name, $file_type);
+                    if ($ins->execute()) {
+                        $success_count++;
                     }
-                    $success_count++;
+                    $ins->close();
                 }
             }
-            // Send Push Notifications in bulk
-            if (!empty($tokens)) {
-                FCMHelper::sendToMultiple($tokens, "New Academic Notice", $content);
+
+            // NEW: Send Push (Expo + Firebase)
+            if ($success_count > 0) {
+                // Fetch student IDs matching the criteria
+                $token_query = $con->query("SELECT s_id FROM student WHERE $where_str");
+                $target_ids = [];
+                while ($tr = $token_query->fetch_assoc())
+                    $target_ids[] = $tr['s_id'];
+
+                if (!empty($target_ids)) {
+                    $notif_msg = !empty($content) ? $content : ("Sent an attachment: " . $file_name);
+                    $notification_body = strlen($notif_msg) > 100 ? substr($notif_msg, 0, 97) . '...' : $notif_msg;
+                    ExpoHelper::routeNotification($con, $target_ids, "Academic Notice", $notification_body, ['type' => 'notice', 'broadcast_id' => $broadcast_id, 'channelId' => 'default']);
+                }
             }
+
             echo json_encode(['error' => 0, 'message' => "Broadcast sent to $success_count students"]);
             exit;
         }
 
         // Standard logic for groups/DMs
-        $sql = "INSERT INTO messages (sender_id, content, university, session, course, semester, groupId, createdAt) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, NOW())";
+        $sql = "INSERT INTO messages (sender_id, content, university, session, course, semester, groupId, file_path, file_name, file_type, createdAt) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())";
         $stmt = $con->prepare($sql);
         if ($stmt) {
             $g_id = !empty($groupId) ? $groupId : null;
-            $stmt->bind_param("issssss", $faculty_id, $content, $uni, $session, $course, $semester, $g_id);
+            $stmt->bind_param("isssssssss", $faculty_id, $content, $uni, $session, $course, $semester, $g_id, $file_path, $file_name, $file_type);
             if ($stmt->execute()) {
-                echo json_encode(['error' => 0, 'message' => 'Message sent successfully']);
-                
-                // Trigger Push for Group Members (if applicable)
-                if (!empty($groupId)) {
-                    $token_query = $con->query("SELECT s.fcm_token FROM group_members gm JOIN student s ON gm.user_id = s.s_id WHERE gm.group_id = ".intval($groupId)." AND s.fcm_token IS NOT NULL");
-                    $group_tokens = [];
-                    while ($trow = $token_query->fetch_assoc()) $group_tokens[] = $trow['fcm_token'];
-                    if (!empty($group_tokens)) {
-                        FCMHelper::sendToMultiple($group_tokens, "New Message in Group", $content);
+                // NEW: Send Push for Group / DM Message
+                if (!empty($g_id)) {
+                    if (strpos($g_id, 'DM-') === 0) {
+                        // It is a Direct Message (DM-F<faculty_id>-S<student_id>)
+                        if (preg_match('/-S(\d+)$/', $g_id, $matches)) {
+                            $target_student_id = intval($matches[1]);
+
+                            $f_name = !empty($faculty_name) ? $faculty_name : 'Faculty';
+                            $notif_msg = !empty($content) ? $content : ("Sent an attachment: " . $file_name);
+                            $notification_body = strlen($notif_msg) > 100 ? substr($notif_msg, 0, 97) . '...' : $notif_msg;
+
+                            ExpoHelper::routeNotification($con, [$target_student_id], "New Message from $f_name", $notification_body, ['type' => 'dm', 'groupId' => $g_id, 'channelId' => 'default']);
+                        }
+                    } else {
+                        // Fetch Group Name
+                        $gn_query = $con->query("SELECT group_name FROM chat_groups WHERE id = " . intval($g_id));
+                        $g_name = ($gn_query && $gn_row = $gn_query->fetch_assoc()) ? $gn_row['group_name'] : 'Group Message';
+
+                        // Fetch Group Members' tokens (excluding faculty)
+                        $members_query = $con->query("SELECT user_id FROM group_members WHERE group_id = " . intval($g_id) . " AND user_role = 'student'");
+                        $member_ids = [];
+                        while ($mr = $members_query->fetch_assoc())
+                            $member_ids[] = $mr['user_id'];
+
+                        if (!empty($member_ids)) {
+                            $notif_msg = !empty($content) ? $content : ("Sent an attachment: " . $file_name);
+                            $notification_body = strlen($notif_msg) > 100 ? substr($notif_msg, 0, 97) . '...' : $notif_msg;
+                            ExpoHelper::routeNotification($con, $member_ids, "New Message in $g_name", $notification_body, ['type' => 'group', 'groupId' => $g_id, 'channelId' => 'default']);
+                        }
                     }
                 }
+
+                echo json_encode(['error' => 0, 'message' => 'Message sent successfully']);
             } else {
                 echo json_encode(['error' => 1, 'message' => $stmt->error]);
             }
@@ -410,6 +593,8 @@ if (isset($_POST['POST_TYPE'])) {
         $error_count = 0;
 
         $broadcast_id = 'BCT-' . time() . '-' . rand(1000, 9999);
+        $expo_tokens = [];
+        $pushed_tokens = []; // Track to avoid duplicates
 
         foreach ($students_id as $s_id) {
             $s_id = intval($s_id);
@@ -449,16 +634,20 @@ if (isset($_POST['POST_TYPE'])) {
                 $stmt->bind_param("iissssss", $faculty_id, $s_id, $personalized_msg, $uni, $sess, $course, $sem, $broadcast_id);
                 if ($stmt->execute()) {
                     $success_count++;
-                    // Trigger Push
-                    if (!empty($std_row['fcm_token'])) {
-                        FCMHelper::send($std_row['fcm_token'], "Important Notice", $personalized_msg);
-                    }
                 } else {
                     $error_count++;
                 }
                 $stmt->close();
             }
         }
+
+        // NEW: Send Push (Expo + Firebase)
+        if (!empty($students_id)) {
+            $notification_title = "New Academic Notice";
+            $notification_body = strlen($template_content) > 100 ? substr($template_content, 0, 97) . '...' : $template_content;
+            ExpoHelper::routeNotification($con, $students_id, $notification_title, $notification_body, ['type' => 'notice', 'broadcast_id' => $broadcast_id, 'channelId' => 'default']);
+        }
+
         echo json_encode(['error' => 0, 'message' => "Successfully sent to $success_count students."]);
         exit;
     }
@@ -1408,8 +1597,23 @@ if (file_exists("pages/header.php")) {
                 </div>
                 <div class="composer-area">
                     <form id="chat-form" onsubmit="return false;">
-                        <div class="composer-input-wrapper">
-                            <textarea id="msg-content" placeholder="Type your message here..."
+                        <!-- File Preview Area -->
+                        <div id="chat-file-preview" style="display: none; padding: 8px 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-bottom: none; border-radius: 12px 12px 0 0; align-items: center; justify-content: space-between; margin-bottom: -1px; position: relative; z-index: 5;">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <i class="fa fa-file" id="preview-file-icon" style="color: #3b82f6; font-size: 1.1rem;"></i>
+                                <span id="preview-file-name" style="font-size: 0.85rem; font-weight: 600; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 250px;">filename.pdf</span>
+                                <span id="preview-file-size" style="font-size: 0.75rem; color: #64748b;"> (2.4 MB)</span>
+                            </div>
+                            <button type="button" onclick="cancelChatFile()" style="background: none; border: none; color: #ef4444; cursor: pointer; font-size: 1.2rem; padding: 0 5px;">
+                                <i class="fa fa-times-circle"></i>
+                            </button>
+                        </div>
+                        <div class="composer-input-wrapper" style="position: relative; display: flex; align-items: center;">
+                            <label for="chat-file-input" style="cursor: pointer; margin: 0; padding: 8px 12px 8px 0; display: flex; align-items: center; color: #64748b; transition: color 0.2s;" onmouseover="this.style.color='#3b82f6'" onmouseout="this.style.color='#64748b'" title="Attach any file (PDF, Word, Excel, Image, etc.)">
+                                <i class="fa fa-paperclip" style="font-size: 1.3rem;"></i>
+                                <input type="file" id="chat-file-input" style="display: none;" onchange="handleChatFileSelect(this)">
+                            </label>
+                            <textarea id="msg-content" placeholder="Type your message here..." style="flex: 1;"
                                 oninput="this.style.height = ''; this.style.height = Math.min(this.scrollHeight, 120) + 'px'"></textarea>
                             <button type="button" id="send-btn" class="send-btn">
                                 <span>Send</span>
@@ -2150,6 +2354,48 @@ if (file_exists("pages/footer.php")) {
                                 `;
                             }
 
+                            let fileHTML = '';
+                            if (msg.file_path) {
+                                const fileName = msg.file_name || 'Attached File';
+                                const filePath = msg.file_path;
+                                const ext = fileName.split('.').pop().toLowerCase();
+                                
+                                let iconClass = 'fa-file-o';
+                                let iconColor = '#64748b';
+                                if (['pdf'].includes(ext)) { iconClass = 'fa-file-pdf-o'; iconColor = '#ef4444'; }
+                                else if (['doc', 'docx'].includes(ext)) { iconClass = 'fa-file-word-o'; iconColor = '#3b82f6'; }
+                                else if (['xls', 'xlsx'].includes(ext)) { iconClass = 'fa-file-excel-o'; iconColor = '#10b981'; }
+                                else if (['png', 'jpg', 'jpeg', 'gif'].includes(ext)) { iconClass = 'fa-file-image-o'; iconColor = '#8b5cf6'; }
+                                else if (['zip', 'rar'].includes(ext)) { iconClass = 'fa-file-archive-o'; iconColor = '#f59e0b'; }
+                                
+                                const fileBg = isMe ? 'rgba(255, 255, 255, 0.18)' : 'rgba(0, 0, 0, 0.04)';
+                                const fileBorder = isMe ? 'rgba(255, 255, 255, 0.25)' : 'rgba(0, 0, 0, 0.08)';
+                                const fileTextClr = isMe ? '#fff' : 'var(--text-main)';
+                                const downloadBtnBg = isMe ? 'white' : 'var(--primary)';
+                                const downloadBtnIconClr = isMe ? 'var(--primary)' : 'white';
+                                
+                                let imgThumbnail = '';
+                                if (['png', 'jpg', 'jpeg', 'gif'].includes(ext)) {
+                                    imgThumbnail = `<a href="${filePath}" target="_blank"><img src="${filePath}" style="max-width: 100%; max-height: 150px; border-radius: 8px; margin-top: 8px; display: block; border: 1px solid rgba(0,0,0,0.05);" /></a>`;
+                                }
+                                
+                                fileHTML = `
+                                    <div style="background: ${fileBg}; border: 1px solid ${fileBorder}; color: ${fileTextClr}; border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; display: flex; align-items: center; gap: 12px; backdrop-filter: blur(5px);">
+                                        <div style="width: 40px; height: 40px; border-radius: 8px; background: white; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05); flex-shrink: 0;">
+                                            <i class="fa ${iconClass}" style="font-size: 1.4rem; color: ${iconColor};"></i>
+                                        </div>
+                                        <div style="flex: 1; overflow: hidden; display: flex; flex-direction: column; text-align: left;">
+                                            <span style="font-size: 0.82rem; font-weight: 600; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">${fileName}</span>
+                                            <span style="font-size: 0.7rem; opacity: 0.8; text-transform: uppercase;">${ext} document</span>
+                                        </div>
+                                        <a href="${filePath}" download="${fileName}" style="width: 32px; height: 32px; border-radius: 50%; background: ${downloadBtnBg}; color: ${downloadBtnIconClr}; display: flex; align-items: center; justify-content: center; transition: all 0.2s; box-shadow: 0 2px 4px rgba(0,0,0,0.1); flex-shrink: 0;" onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'">
+                                            <i class="fa fa-download" style="font-size: 0.9rem;"></i>
+                                        </a>
+                                    </div>
+                                    ${imgThumbnail}
+                                `;
+                            }
+
                             let recipientLabel = '';
                             if (isMe) {
                                 if (msg.groupId && msg.groupId.toString().startsWith('BCT-')) {
@@ -2166,7 +2412,8 @@ if (file_exists("pages/footer.php")) {
                                         ${isMe ? 'You' : 'Student'}
                                     </div>
                                     ${recipientLabel}
-                                    <div class="message-text" style="word-break: break-word;">${msg.content}</div>
+                                    ${fileHTML}
+                                    <div class="message-text" style="word-break: break-word; ${msg.content ? '' : 'display:none;'}">${msg.content}</div>
                                     <div class="message-footer" style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px; font-size: 10px; opacity: 0.9;">
                                         <span><i class="fa fa-clock-o"></i> ${dateStr} ${time}</span>
                                         <div style="display: flex; align-items: center; gap: 4px;">
@@ -2187,12 +2434,51 @@ if (file_exists("pages/footer.php")) {
             });
     }
 
+    let selectedChatFile = null;
+
+    function handleChatFileSelect(input) {
+        if (input.files && input.files[0]) {
+            selectedChatFile = input.files[0];
+            const file = selectedChatFile;
+            
+            // Show preview
+            $('#preview-file-name').text(file.name);
+            const sizeInMB = (file.size / (1024 * 1024)).toFixed(2);
+            $('#preview-file-size').text(` (${sizeInMB} MB)`);
+            
+            // Set icon based on extension
+            const ext = file.name.split('.').pop().toLowerCase();
+            let iconClass = 'fa-file';
+            if (['pdf'].includes(ext)) iconClass = 'fa-file-pdf-o w3-text-red';
+            else if (['doc', 'docx'].includes(ext)) iconClass = 'fa-file-word-o w3-text-blue';
+            else if (['xls', 'xlsx'].includes(ext)) iconClass = 'fa-file-excel-o w3-text-green';
+            else if (['png', 'jpg', 'jpeg', 'gif'].includes(ext)) iconClass = 'fa-file-image-o w3-text-purple';
+            else if (['zip', 'rar'].includes(ext)) iconClass = 'fa-file-archive-o w3-text-orange';
+            
+            $('#preview-file-icon').attr('class', `fa ${iconClass}`);
+            $('#chat-file-preview').css('display', 'flex');
+            
+            // Adjust composer input borders
+            $('.composer-input-wrapper').css('border-radius', '0 0 16px 16px');
+        }
+    }
+
+    function cancelChatFile() {
+        selectedChatFile = null;
+        $('#chat-file-input').val('');
+        $('#chat-file-preview').hide();
+        $('.composer-input-wrapper').css('border-radius', '16px');
+    }
+
     function sendMessage() {
         const content = $('#msg-content').val();
-        if (!content) return;
+        if (!content && !selectedChatFile) return;
         const payload = new FormData();
         payload.append('POST_TYPE', 'SEND_MESSAGE');
         payload.append('content', content);
+        if (selectedChatFile) {
+            payload.append('file', selectedChatFile);
+        }
 
         let gId = currentGroupId || '';
         let sessionVal = '';
@@ -2217,6 +2503,7 @@ if (file_exists("pages/footer.php")) {
                     const res = JSON.parse(text);
                     if (res.error === 0) {
                         $('#msg-content').val('');
+                        cancelChatFile();
                         fetchMessages();
                     } else {
                         alert("Error: " + res.message);

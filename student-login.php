@@ -58,6 +58,39 @@ if (isset($_POST['studentLogin'])) {
                     $_SESSION['s_name'] = $student_data['s_name'];
                     $_SESSION['s_sem'] = $student_data['s_cur_sem'] ?? 1;
 
+                    // Fetch course and university details
+                    $s_course_id = $_SESSION['s_course_id'];
+                    $s_university_id = $_SESSION['s_university_id'];
+                    if ($s_course_id && $s_university_id) {
+                        $stmt = $con->prepare("SELECT cm.*, u.university_name, u.university_short_name 
+                                               FROM course_master cm 
+                                               LEFT JOIN university u ON cm.university_id = u.id 
+                                               WHERE cm.course_master_id = ? AND cm.course_status = 'A' AND u.id = ?");
+                        if ($stmt === false) {
+                            error_log("Prepare failed: " . $con->error);
+                        } else {
+                            $stmt->bind_param("ii", $s_course_id, $s_university_id);
+                            if (!$stmt->execute()) {
+                                error_log("Course query failed: " . $stmt->error);
+                            } else {
+                                $row = $stmt->get_result()->fetch_assoc();
+                                $_SESSION['course'] = $row ?: ['course_name' => 'Unknown', 'university_short_name' => 'Unknown'];
+                                $stmt->close();
+                            }
+                        }
+                    } else {
+                        $_SESSION['course'] = ['course_name' => 'Unknown', 'university_short_name' => 'Unknown'];
+                    }
+
+                    // Log login attempt
+                    $ip_address = $_SERVER['REMOTE_ADDR'];
+                    $stmt = $con->prepare("INSERT INTO student_login (s_id, ip_address) VALUES (?, ?)");
+                    if ($stmt !== false) {
+                        $stmt->bind_param("ss", $s_roll_no_r, $ip_address);
+                        $stmt->execute();
+                        $stmt->close();
+                    }
+
                     header('Location: student-dashboard_sunam.php');
                     ob_end_flush();
                     exit;
@@ -570,3 +603,8 @@ if (isset($_POST['studentLogin'])) {
         });
     });
 </script>
+
+<?php
+include 'footer.php';
+ob_end_flush();
+?>

@@ -9,6 +9,119 @@ if (!$con) {
 }
 mysqli_set_charset($con, "utf8mb4");
 
+
+if (file_exists("firebase_helper.php")) {
+    include("firebase_helper.php");
+}
+/**
+ * Expo Push Notification Helper
+ */
+if (!class_exists('ExpoHelper')) {
+    class ExpoHelper
+    {
+        private static $expo_api_url = 'https://exp.host/--/api/v2/push/send';
+        public static function sendNotification($to, $title, $body, $data = [])
+        {
+            if (empty($to))
+                return ['error' => 'No recipients'];
+            $notifications = [];
+            $recipients = is_array($to) ? $to : [$to];
+            foreach ($recipients as $token) {
+                if (strpos($token, 'ExponentPushToken') !== 0 && strpos($token, 'ExpoPushToken') !== 0)
+                    continue;
+                $notifications[] = [
+                    'to' => $token,
+                    'title' => $title,
+                    'body' => $body,
+                    'data' => $data,
+                    'sound' => 'default',
+                    'priority' => 'high',
+                    'channelId' => 'default',
+                    'badge' => 1
+                ];
+            }
+            if (empty($notifications))
+                return ['error' => 'No valid tokens'];
+            $chunks = array_chunk($notifications, 100);
+            $results = [];
+            foreach ($chunks as $chunk) {
+                $ch = curl_init();
+                curl_setopt($ch, CURLOPT_URL, self::$expo_api_url);
+                curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json', 'Accept: application/json', 'Accept-Encoding: gzip, deflate']);
+                curl_setopt($ch, CURLOPT_POST, 1);
+                curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($chunk));
+                curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+                $response = curl_exec($ch);
+                if (curl_errno($ch)) {
+                    error_log("Expo Push Error in student_message: " . curl_error($ch));
+                }
+                $results[] = json_decode($response, true);
+                curl_close($ch);
+            }
+            return $results;
+        }
+
+        /**
+         * Get all push tokens for a set of student IDs
+         */
+        public static function getStudentTokens($con, $student_ids)
+        {
+            if (empty($student_ids))
+                return [];
+            $ids = is_array($student_ids) ? $student_ids : [$student_ids];
+            $ids_str = implode(',', array_map('intval', $ids));
+
+            $tokens = [];
+
+            // 1. Get from new unified table
+            $res1 = $con->query("SELECT push_token FROM user_push_tokens WHERE user_id IN ($ids_str) AND user_role = 'student'");
+            if ($res1) {
+                while ($row = $res1->fetch_assoc())
+                    $tokens[] = $row['push_token'];
+            }
+
+            // 2. Get from legacy student table
+            $res2 = $con->query("SELECT expo_token FROM student WHERE s_id IN ($ids_str) AND expo_token IS NOT NULL");
+            if ($res2) {
+                while ($row = $res2->fetch_assoc())
+                    $tokens[] = $row['expo_token'];
+            }
+
+            return array_unique($tokens);
+        }
+
+        /**
+         * Smart Send: Routes to Expo or Firebase based on token format
+         */
+        public static function routeNotification($con, $target_ids, $title, $body, $data = [])
+        {
+            $all_tokens = self::getStudentTokens($con, $target_ids);
+            if (empty($all_tokens))
+                return ['error' => 'No tokens found'];
+
+            $expo_tokens = [];
+            $fcm_tokens = [];
+
+            foreach ($all_tokens as $token) {
+                if (strpos($token, 'ExponentPushToken') === 0 || strpos($token, 'ExpoPushToken') === 0) {
+                    $expo_tokens[] = $token;
+                } else {
+                    $fcm_tokens[] = $token;
+                }
+            }
+
+            $results = [];
+            if (!empty($expo_tokens)) {
+                $results['expo'] = self::sendNotification($expo_tokens, $title, $body, $data);
+            }
+            if (!empty($fcm_tokens) && class_exists('FirebaseHelper')) {
+                $results['firebase'] = FirebaseHelper::sendNotification($fcm_tokens, $title, $body, $data);
+            }
+            return $results;
+        }
+    }
+}
+
 if (!isset($_SESSION['s_id'])) {
     header('location:student-login.php');
     exit;
@@ -25,7 +138,7 @@ if (isset($_GET['ajax'])) {
     header('Content-Type: application/json');
 
     if ($_GET['ajax'] == 'get_messages') {
-        $groupId = isset($_GET['groupId']) && $_GET['groupId'] !== 'null' ? intval($_GET['groupId']) : null;
+        $groupIdParam = isset($_GET['groupId']) && $_GET['groupId'] !== 'null' ? $_GET['groupId'] : null;
 
         $sql = "SELECT m.*, 
                 CASE 
@@ -34,8 +147,9 @@ if (isset($_GET['ajax'])) {
                 END as sender_name 
                 FROM messages m WHERE 1=1";
 
-        if ($groupId) {
-            $sql .= " AND m.groupId = $groupId";
+        if ($groupIdParam) {
+            $safeGroupId = mysqli_real_escape_string($con, $groupIdParam);
+            $sql .= " AND m.groupId = '$safeGroupId'";
         } else {
             // Academic Notices logic
             $sql .= " AND (m.groupId IS NULL OR m.groupId = '0' OR m.groupId = '' OR m.groupId LIKE 'BCT-%')";
@@ -57,13 +171,23 @@ if (isset($_GET['ajax'])) {
         }
         $sql .= " ORDER BY m.createdAt ASC";
 
-        // Mark messages as read
-        $updateSql = "UPDATE messages SET is_read = 1, read_at = NOW() 
-                     WHERE (receiver_id = ? OR (receiver_id IS NULL OR receiver_id = 0)) 
-                     AND is_read = 0 AND sender_id != ?";
-        $updStmt = $con->prepare($updateSql);
-        $updStmt->bind_param("ii", $student_id, $student_id);
-        $updStmt->execute();
+        // Mark messages as read for this specific channel
+        if ($groupIdParam) {
+            $safeGroupId = mysqli_real_escape_string($con, $groupIdParam);
+            $updateSql = "UPDATE messages SET is_read = 1, read_at = NOW() 
+                         WHERE groupId = '$safeGroupId' AND is_read = 0 AND sender_id != ?";
+            $updStmt = $con->prepare($updateSql);
+            $updStmt->bind_param("i", $student_id);
+            $updStmt->execute();
+        } else {
+            $updateSql = "UPDATE messages SET is_read = 1, read_at = NOW() 
+                         WHERE (receiver_id = ? OR (receiver_id IS NULL OR receiver_id = 0)) 
+                         AND (groupId IS NULL OR groupId = '0' OR groupId = '' OR groupId LIKE 'BCT-%')
+                         AND is_read = 0 AND sender_id != ?";
+            $updStmt = $con->prepare($updateSql);
+            $updStmt->bind_param("ii", $student_id, $student_id);
+            $updStmt->execute();
+        }
 
         $stmt = $con->prepare($sql);
         $stmt->bind_param("i", $student_id);
@@ -71,6 +195,15 @@ if (isset($_GET['ajax'])) {
         $result = $stmt->get_result();
         $messages = [];
         while ($row = $result->fetch_assoc()) {
+            if (!empty($row['file_path'])) {
+                // If the file is stored under chatfileuploads but doesn't exist at the root,
+                // check if it exists in the admission/ subdirectory (common in live environment).
+                if (strpos($row['file_path'], 'chatfileuploads/') === 0) {
+                    if (!file_exists($row['file_path']) && file_exists('admission/' . $row['file_path'])) {
+                        $row['file_path'] = 'admission/' . $row['file_path'];
+                    }
+                }
+            }
             $messages[] = $row;
         }
         // Debug log
@@ -82,7 +215,7 @@ if (isset($_GET['ajax'])) {
 
     if ($_GET['ajax'] == 'send_message' && $_SERVER['REQUEST_METHOD'] == 'POST') {
         $content = mysqli_real_escape_string($con, $_POST['content']);
-        $groupId = isset($_POST['groupId']) && $_POST['groupId'] !== 'null' ? intval($_POST['groupId']) : 0;
+        $groupIdParam = isset($_POST['groupId']) && $_POST['groupId'] !== 'null' ? $_POST['groupId'] : '';
 
         if (empty($content)) {
             echo json_encode(['success' => false, 'error' => 'Message is empty']);
@@ -90,15 +223,86 @@ if (isset($_GET['ajax'])) {
         }
 
         // Students can only send to custom groups, not Academic Notices (usually)
-        if ($groupId == 0) {
+        if (empty($groupIdParam) || $groupIdParam === '0') {
             echo json_encode(['success' => false, 'error' => 'Cannot send to Academic Notices']);
             exit;
         }
 
         $insert = "INSERT INTO messages (sender_id, content, groupId, createdAt) VALUES (?, ?, ?, NOW())";
         $stmt = $con->prepare($insert);
-        $stmt->bind_param("isi", $student_id, $content, $groupId);
+        $stmt->bind_param("iss", $student_id, $content, $groupIdParam);
         if ($stmt->execute()) {
+            // Send push notifications
+            if (strpos($groupIdParam, 'DM-') === 0) {
+                // DM to Faculty
+                if (preg_match('/^DM-F(\d+)/', $groupIdParam, $matches)) {
+                    $faculty_id = intval($matches[1]);
+
+                    // Fetch Student Name
+                    $sn_query = $con->query("SELECT s_name FROM student WHERE s_id = $student_id");
+                    $s_name = ($sn_query && $sn_row = $sn_query->fetch_assoc()) ? $sn_row['s_name'] : 'Student';
+
+                    // Fetch Faculty tokens
+                    $faculty_tokens = [];
+                    $ft_query = $con->query("SELECT push_token FROM user_push_tokens WHERE user_id = $faculty_id AND user_role = 'faculty'");
+                    if ($ft_query) {
+                        while ($row = $ft_query->fetch_assoc()) {
+                            $faculty_tokens[] = $row['push_token'];
+                        }
+                    }
+
+                    if (!empty($faculty_tokens)) {
+                        $notification_body = strlen($content) > 100 ? substr($content, 0, 97) . '...' : $content;
+                        ExpoHelper::sendNotification($faculty_tokens, "New Message from $s_name", $notification_body, ['type' => 'dm', 'groupId' => $groupIdParam, 'channelId' => 'default']);
+                    }
+                }
+            } else {
+                // Group message
+                $groupId = intval($groupIdParam);
+                if ($groupId > 0) {
+                    // Fetch Group Name
+                    $gn_query = $con->query("SELECT group_name FROM chat_groups WHERE id = $groupId");
+                    $g_name = ($gn_query && $gn_row = $gn_query->fetch_assoc()) ? $gn_row['group_name'] : 'Group Message';
+
+                    // Fetch other members' IDs (excluding sender)
+                    $member_query = $con->query("SELECT user_id, user_role FROM group_members 
+                                               WHERE group_id = $groupId 
+                                               AND (user_role = 'student' AND user_id != $student_id OR user_role = 'faculty')");
+                    $student_ids = [];
+                    $faculty_ids = [];
+                    if ($member_query) {
+                        while ($mr = $member_query->fetch_assoc()) {
+                            if ($mr['user_role'] === 'student') {
+                                $student_ids[] = $mr['user_id'];
+                            } else {
+                                $faculty_ids[] = $mr['user_id'];
+                            }
+                        }
+                    }
+
+                    $notification_body = strlen($content) > 100 ? substr($content, 0, 97) . '...' : $content;
+
+                    // Send to student members
+                    if (!empty($student_ids)) {
+                        ExpoHelper::routeNotification($con, $student_ids, "New Message in $g_name", $notification_body, ['type' => 'group', 'groupId' => $groupId, 'channelId' => 'default']);
+                    }
+
+                    // Send to faculty admins
+                    if (!empty($faculty_ids)) {
+                        $faculty_tokens = [];
+                        $ids_str = implode(',', array_map('intval', $faculty_ids));
+                        $ft_query = $con->query("SELECT push_token FROM user_push_tokens WHERE user_id IN ($ids_str) AND user_role = 'faculty'");
+                        if ($ft_query) {
+                            while ($row = $ft_query->fetch_assoc()) {
+                                $faculty_tokens[] = $row['push_token'];
+                            }
+                        }
+                        if (!empty($faculty_tokens)) {
+                            ExpoHelper::sendNotification($faculty_tokens, "New Message in $g_name", $notification_body, ['type' => 'group', 'groupId' => $groupId, 'channelId' => 'default']);
+                        }
+                    }
+                }
+            }
             echo json_encode(['success' => true]);
         } else {
             echo json_encode(['success' => false, 'error' => $stmt->error]);
@@ -109,9 +313,10 @@ if (isset($_GET['ajax'])) {
     if ($_GET['ajax'] == 'check_updates') {
         $last_id = isset($_GET['last_id']) ? intval($_GET['last_id']) : 0;
 
-        $sql = "SELECT m.id, m.content, m.sender_id, m.groupId, 
+        $sql = "SELECT m.id, m.content, m.sender_id, m.groupId, m.file_name,
                 CASE 
                     WHEN m.groupId IS NULL OR m.groupId = '0' OR m.groupId = '' OR m.groupId LIKE 'BCT-%' THEN 'Academic Notice' 
+                    WHEN m.groupId LIKE 'DM-%' THEN 'Direct Message'
                     ELSE g.group_name 
                 END as source_name
                 FROM messages m
@@ -120,6 +325,7 @@ if (isset($_GET['ajax'])) {
                 AND (
                     ((m.groupId IS NULL OR m.groupId = '0' OR m.groupId = '' OR m.groupId LIKE 'BCT-%') AND (m.receiver_id = ? OR m.receiver_id IS NULL OR m.receiver_id = 0))
                     OR m.groupId IN (SELECT group_id FROM group_members WHERE user_id = ? AND user_role = 'student')
+                    OR m.groupId LIKE 'DM-%-S$student_id'
                 )
                 AND m.sender_id != ?
                 ORDER BY m.id DESC LIMIT 1";
@@ -139,29 +345,14 @@ if (isset($_GET['ajax'])) {
     if ($_GET['ajax'] == 'get_latest_id') {
         $sql = "SELECT MAX(m.id) as max_id FROM messages m
                 WHERE ((m.groupId IS NULL OR m.groupId = '0' OR m.groupId = '' OR m.groupId LIKE 'BCT-%') AND (m.receiver_id = ? OR m.receiver_id IS NULL OR m.receiver_id = 0))
-                OR m.groupId IN (SELECT group_id FROM group_members WHERE user_id = ? AND user_role = 'student')";
+                OR m.groupId IN (SELECT group_id FROM group_members WHERE user_id = ? AND user_role = 'student')
+                OR m.groupId LIKE 'DM-%-S$student_id'";
         $stmt = $con->prepare($sql);
         $stmt->bind_param("ii", $student_id, $student_id);
         $stmt->execute();
         $res = $stmt->get_result();
         $row = $res->fetch_assoc();
         echo json_encode(['success' => true, 'max_id' => $row['max_id'] ?: 0]);
-        exit;
-    }
-
-    if ($_GET['ajax'] == 'save_fcm_token' && $_SERVER['REQUEST_METHOD'] == 'POST') {
-        $token = mysqli_real_escape_string($con, $_POST['token']);
-        if (!empty($token)) {
-            $stmt = $con->prepare("UPDATE student SET fcm_token = ? WHERE s_id = ?");
-            $stmt->bind_param("si", $token, $student_id);
-            if ($stmt->execute()) {
-                echo json_encode(['success' => true]);
-            } else {
-                echo json_encode(['success' => false, 'error' => $stmt->error]);
-            }
-        } else {
-            echo json_encode(['success' => false, 'error' => 'Token is empty']);
-        }
         exit;
     }
     if ($_GET['ajax'] == 'get_group_members') {
@@ -185,6 +376,41 @@ if (isset($_GET['ajax'])) {
             echo json_encode(['success' => true, 'members' => $members]);
         } else {
             echo json_encode(['success' => false, 'error' => 'Invalid Group']);
+        }
+        exit;
+    }
+
+    if ($_GET['ajax'] == 'save_expo_token' && $_SERVER['REQUEST_METHOD'] == 'POST') {
+        $token = mysqli_real_escape_string($con, $_POST['token'] ?? '');
+        if (!empty($token)) {
+            // 1. Table creation handled manually by user
+
+            // 2. Save to user_push_tokens (New unified table)
+            $stmt = $con->prepare("INSERT INTO user_push_tokens (user_id, user_role, push_token) 
+                                   VALUES (?, 'student', ?) 
+                                   ON DUPLICATE KEY UPDATE last_updated = NOW()");
+            $stmt->bind_param("is", $student_id, $token);
+            $stmt->execute();
+            $stmt->close();
+
+            // 3. Save to student table (Legacy support/Backup)
+            if (strpos($token, 'Expo') === false && strpos($token, 'Exponent') === false) {
+                // Native FCM Token
+                $stmt = $con->prepare("UPDATE student SET fcm_token = ? WHERE s_id = ?");
+            } else {
+                // Expo Token
+                $stmt = $con->prepare("UPDATE student SET expo_token = ? WHERE s_id = ?");
+            }
+
+            $stmt->bind_param("si", $token, $student_id);
+            if ($stmt->execute()) {
+                echo json_encode(['success' => true, 'message' => 'Token saved in both systems']);
+            } else {
+                echo json_encode(['success' => false, 'error' => $stmt->error]);
+            }
+            $stmt->close();
+        } else {
+            echo json_encode(['success' => false, 'error' => 'Token missing']);
         }
         exit;
     }
@@ -225,7 +451,10 @@ include("header.php");
     }
 
     /* Hide Site Headers */
-    .header1, .header2, .header3, #mu-menu {
+    .header1,
+    .header2,
+    .header3,
+    #mu-menu {
         display: none !important;
     }
 
@@ -427,8 +656,15 @@ include("header.php");
     }
 
     @keyframes messageFadeIn {
-        from { opacity: 0; transform: translateY(10px); }
-        to { opacity: 1; transform: translateY(0); }
+        from {
+            opacity: 0;
+            transform: translateY(10px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
     }
 
     .message.received {
@@ -557,9 +793,20 @@ include("header.php");
     }
 
     @keyframes pulse {
-        0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
-        70% { transform: scale(1.1); box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
-        100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        0% {
+            transform: scale(1);
+            box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4);
+        }
+
+        70% {
+            transform: scale(1.1);
+            box-shadow: 0 0 0 6px rgba(239, 68, 68, 0);
+        }
+
+        100% {
+            transform: scale(1);
+            box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+        }
     }
 
     .group-item.has-new .notification-badge {
@@ -629,7 +876,8 @@ include("header.php");
         }
 
         .group-list::-webkit-scrollbar {
-            height: 0; /* Hide scrollbar but keep functionality */
+            height: 0;
+            /* Hide scrollbar but keep functionality */
         }
 
         .group-item {
@@ -667,12 +915,14 @@ include("header.php");
         }
 
         .group-meta {
-            display: none; /* Hide extra info on mobile row to save space */
+            display: none;
+            /* Hide extra info on mobile row to save space */
         }
 
         .chat-main {
             flex: 1;
-            height: 0; /* Important for flex child with overflow */
+            height: 0;
+            /* Important for flex child with overflow */
         }
 
         .chat-header {
@@ -723,7 +973,8 @@ include("header.php");
                                 </div>
                                 <div class="group-info">
                                     <span class="group-name">Academic Notices</span>
-                                    <span class="group-meta"><?= htmlspecialchars($course) ?> | <?= htmlspecialchars($semester) ?></span>
+                                    <span class="group-meta"><?= htmlspecialchars($course) ?> |
+                                        <?= htmlspecialchars($semester) ?></span>
                                 </div>
                                 <span class="notification-badge" id="badge-0">0</span>
                             </div>
@@ -739,17 +990,18 @@ include("header.php");
                             $g_res = $g_stmt->get_result();
                             while ($group = $g_res->fetch_assoc()):
                                 ?>
-                                    <div class="group-item" id="group-<?= $group['id'] ?>"
-                                        onclick="selectGroup(<?= $group['id'] ?>, '<?= addslashes($group['group_name']) ?>', 'Group Chat')">
-                                        <div class="group-icon">
-                                            <i class="fa fa-users"></i>
-                                        </div>
-                                        <div class="group-info">
-                                            <span class="group-name"><?= htmlspecialchars($group['group_name']) ?></span>
-                                            <span class="group-meta">Joined on <?= date('d M Y', strtotime($group['created_at'])) ?></span>
-                                        </div>
-                                        <span class="notification-badge" id="badge-<?= $group['id'] ?>">0</span>
+                                <div class="group-item" id="group-<?= $group['id'] ?>"
+                                    onclick="selectGroup(<?= $group['id'] ?>, '<?= addslashes($group['group_name']) ?>', 'Group Chat')">
+                                    <div class="group-icon">
+                                        <i class="fa fa-users"></i>
                                     </div>
+                                    <div class="group-info">
+                                        <span class="group-name"><?= htmlspecialchars($group['group_name']) ?></span>
+                                        <span class="group-meta">Joined on
+                                            <?= date('d M Y', strtotime($group['created_at'])) ?></span>
+                                    </div>
+                                    <span class="notification-badge" id="badge-<?= $group['id'] ?>">0</span>
+                                </div>
                             <?php endwhile; ?>
                         </div>
                     </div>
@@ -762,10 +1014,12 @@ include("header.php");
                                 <div id="active-meta" class="group-meta">System generated</div>
                             </div>
                             <div style="display: flex; gap: 8px;">
-                                <button class="btn btn-sm btn-default" id="view-members-btn" style="display:none; border-radius: 10px;"
-                                    onclick="viewGroupMembers()"><i class="fa fa-users"></i> Members</button>
-                                <button class="btn btn-sm btn-primary" style="border-radius: 10px; background: var(--grad-primary); border: none;" onclick="fetchMessages()"><i
-                                        class="fa fa-refresh"></i> Refresh</button>
+                                <button class="btn btn-sm btn-default" id="view-members-btn"
+                                    style="display:none; border-radius: 10px;" onclick="viewGroupMembers()"><i
+                                        class="fa fa-users"></i> Members</button>
+                                <button class="btn btn-sm btn-primary"
+                                    style="border-radius: 10px; background: var(--grad-primary); border: none;"
+                                    onclick="fetchMessages()"><i class="fa fa-refresh"></i> Refresh</button>
                             </div>
                         </div>
 
@@ -920,7 +1174,11 @@ include("header.php");
                     }
 
                     globalLastMessageId = msg.id;
-                    showNotification(msg.source_name, msg.content, msg.groupId);
+                    let bodyText = msg.content;
+                    if (!bodyText && msg.file_name) {
+                        bodyText = "Sent an attachment: " + msg.file_name;
+                    }
+                    showNotification(msg.source_name, bodyText, msg.groupId);
                 } else if (data.success && globalLastMessageId === null) {
                     // No messages at all yet, set to 0 to stop re-initializing
                     globalLastMessageId = 0;
@@ -957,9 +1215,52 @@ include("header.php");
                         const time = new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                         const sender = isSent ? 'You' : (msg.sender_name || 'Admin');
 
+                        let fileHTML = '';
+                        if (msg.file_path) {
+                            const fileName = msg.file_name || 'Attached File';
+                            const filePath = msg.file_path;
+                            const ext = fileName.split('.').pop().toLowerCase();
+                            
+                            let iconClass = 'fa-file-o';
+                            let iconColor = '#64748b';
+                            if (['pdf'].includes(ext)) { iconClass = 'fa-file-pdf-o'; iconColor = '#ef4444'; }
+                            else if (['doc', 'docx'].includes(ext)) { iconClass = 'fa-file-word-o'; iconColor = '#3b82f6'; }
+                            else if (['xls', 'xlsx'].includes(ext)) { iconClass = 'fa-file-excel-o'; iconColor = '#10b981'; }
+                            else if (['png', 'jpg', 'jpeg', 'gif'].includes(ext)) { iconClass = 'fa-file-image-o'; iconColor = '#8b5cf6'; }
+                            else if (['zip', 'rar'].includes(ext)) { iconClass = 'fa-file-archive-o'; iconColor = '#f59e0b'; }
+                            
+                            const fileBg = isSent ? 'rgba(255, 255, 255, 0.18)' : 'rgba(0, 0, 0, 0.04)';
+                            const fileBorder = isSent ? 'rgba(255, 255, 255, 0.25)' : 'rgba(0, 0, 0, 0.08)';
+                            const fileTextClr = isSent ? '#fff' : 'var(--text-main)';
+                            const downloadBtnBg = isSent ? 'white' : 'var(--primary)';
+                            const downloadBtnIconClr = isSent ? 'var(--primary)' : 'white';
+                            
+                            let imgThumbnail = '';
+                            if (['png', 'jpg', 'jpeg', 'gif'].includes(ext)) {
+                                imgThumbnail = `<a href="${filePath}" target="_blank"><img src="${filePath}" style="max-width: 100%; max-height: 150px; border-radius: 8px; margin-top: 8px; display: block; border: 1px solid rgba(0,0,0,0.05);" /></a>`;
+                            }
+                            
+                            fileHTML = `
+                                <div style="background: ${fileBg}; border: 1px solid ${fileBorder}; color: ${fileTextClr}; border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; display: flex; align-items: center; gap: 12px; backdrop-filter: blur(5px);">
+                                    <div style="width: 40px; height: 40px; border-radius: 8px; background: white; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05); flex-shrink: 0;">
+                                        <i class="fa ${iconClass}" style="font-size: 1.4rem; color: ${iconColor};"></i>
+                                    </div>
+                                    <div style="flex: 1; overflow: hidden; display: flex; flex-direction: column; text-align: left;">
+                                        <span style="font-size: 0.82rem; font-weight: 600; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">${fileName}</span>
+                                        <span style="font-size: 0.7rem; opacity: 0.8; text-transform: uppercase;">${ext} document</span>
+                                    </div>
+                                    <a href="${filePath}" download="${fileName}" style="width: 32px; height: 32px; border-radius: 50%; background: ${downloadBtnBg}; color: ${downloadBtnIconClr}; display: flex; align-items: center; justify-content: center; transition: all 0.2s; box-shadow: 0 2px 4px rgba(0,0,0,0.1); flex-shrink: 0;" onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'">
+                                        <i class="fa fa-download" style="font-size: 0.9rem;"></i>
+                                    </a>
+                                </div>
+                                ${imgThumbnail}
+                            `;
+                        }
+
                         div.innerHTML = `
                             <span class="message-info">${sender}</span>
-                            ${msg.content}
+                            ${fileHTML}
+                            <div style="${msg.content ? '' : 'display:none;'}">${msg.content}</div>
                             <span class="message-time">${time}</span>
                         `;
                         container.appendChild(div);
@@ -1001,6 +1302,23 @@ include("header.php");
                 }
             });
     };
+
+    // Handle deep linking from URL (e.g. from notifications)
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlGroupId = urlParams.get('groupId');
+    if (urlGroupId) {
+        // Find group name from the sidebar if possible
+        const groupEl = document.getElementById(`group-${urlGroupId}`);
+        if (groupEl) {
+            const name = groupEl.querySelector('.group-name').innerText;
+            selectGroup(urlGroupId, name, 'Group Chat');
+        } else {
+            // Fallback for Academic Notices or unknown groups
+            selectGroup(urlGroupId === '0' || urlGroupId === 'null' ? null : urlGroupId,
+                urlGroupId === '0' || urlGroupId === 'null' ? 'Academic Notices' : 'Loading...',
+                urlGroupId === '0' || urlGroupId === 'null' ? 'System generated' : 'Group Chat');
+        }
+    }
 
     // Initial load
     fetchMessages();
