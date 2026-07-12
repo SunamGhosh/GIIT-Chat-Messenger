@@ -1,9 +1,9 @@
 <?php
 session_start();
 $DOC_ROOT = $_SERVER["DOCUMENT_ROOT"];
+define("TITLE", "GIIT Messanger");
 require_once("$DOC_ROOT/dn_script/connect.php");
 require_once("$DOC_ROOT/validator/validate_gs.php");
-
 
 if (file_exists("functions.php")) {
     include("functions.php");
@@ -172,34 +172,6 @@ if (isset($_POST['POST_TYPE'])) {
         $semester = $_POST['semester'] ?? '';
         $groupId = $_POST['groupId'] ?? '';
 
-        // File upload processing
-        $file_path = null;
-        $file_name = null;
-        $file_type = null;
-
-        if (isset($_FILES['file']) && $_FILES['file']['error'] == UPLOAD_ERR_OK) {
-            $upload_dir = 'chatfileuploads/';
-            if (!is_dir($upload_dir)) {
-                mkdir($upload_dir, 0777, true);
-            }
-            $orig_name = $_FILES['file']['name'];
-            $file_ext = strtolower(pathinfo($orig_name, PATHINFO_EXTENSION));
-            $allowed_exts = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'png', 'jpg', 'jpeg', 'gif', 'zip', 'rar'];
-            
-            if (in_array($file_ext, $allowed_exts)) {
-                $new_filename = time() . '_' . uniqid() . '.' . $file_ext;
-                $target_path = $upload_dir . $new_filename;
-                if (move_uploaded_file($_FILES['file']['tmp_name'], $target_path)) {
-                    $file_path = $target_path;
-                    $file_name = $orig_name;
-                    $file_type = $_FILES['file']['type'];
-                }
-            } else {
-                echo json_encode(['error' => 1, 'message' => 'Invalid file extension. Allowed extensions: ' . implode(', ', $allowed_exts)]);
-                exit;
-            }
-        }
-
         // NEW: If sending to a session (no groupId but filters present), make it a tracked broadcast
         if (empty($groupId) && (!empty($uni) || !empty($session) || !empty($course) || !empty($semester))) {
             $broadcast_id = 'BCT-' . time() . '-' . rand(1000, 9999);
@@ -226,8 +198,8 @@ if (isset($_POST['POST_TYPE'])) {
             if ($std_query) {
                 while ($std = $std_query->fetch_assoc()) {
                     $s_id = $std['s_id'];
-                    $ins = $con->prepare("INSERT INTO messages (sender_id, receiver_id, content, university, session, course, semester, groupId, file_path, file_name, file_type, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())");
-                    $ins->bind_param("iisssssssss", $faculty_id, $s_id, $content, $uni, $session, $course, $semester, $broadcast_id, $file_path, $file_name, $file_type);
+                    $ins = $con->prepare("INSERT INTO messages (sender_id, receiver_id, content, university, session, course, semester, groupId, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())");
+                    $ins->bind_param("iissssss", $faculty_id, $s_id, $content, $uni, $session, $course, $semester, $broadcast_id);
                     if ($ins->execute()) {
                         $success_count++;
                     }
@@ -244,8 +216,7 @@ if (isset($_POST['POST_TYPE'])) {
                     $target_ids[] = $tr['s_id'];
 
                 if (!empty($target_ids)) {
-                    $notif_msg = !empty($content) ? $content : ("Sent an attachment: " . $file_name);
-                    $notification_body = strlen($notif_msg) > 100 ? substr($notif_msg, 0, 97) . '...' : $notif_msg;
+                    $notification_body = strlen($content) > 100 ? substr($content, 0, 97) . '...' : $content;
                     ExpoHelper::routeNotification($con, $target_ids, "Academic Notice", $notification_body, ['type' => 'notice', 'broadcast_id' => $broadcast_id, 'channelId' => 'default']);
                 }
             }
@@ -255,12 +226,12 @@ if (isset($_POST['POST_TYPE'])) {
         }
 
         // Standard logic for groups/DMs
-        $sql = "INSERT INTO messages (sender_id, content, university, session, course, semester, groupId, file_path, file_name, file_type, createdAt) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())";
+        $sql = "INSERT INTO messages (sender_id, content, university, session, course, semester, groupId, createdAt) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, NOW())";
         $stmt = $con->prepare($sql);
         if ($stmt) {
             $g_id = !empty($groupId) ? $groupId : null;
-            $stmt->bind_param("isssssssss", $faculty_id, $content, $uni, $session, $course, $semester, $g_id, $file_path, $file_name, $file_type);
+            $stmt->bind_param("issssss", $faculty_id, $content, $uni, $session, $course, $semester, $g_id);
             if ($stmt->execute()) {
                 // NEW: Send Push for Group / DM Message
                 if (!empty($g_id)) {
@@ -270,8 +241,7 @@ if (isset($_POST['POST_TYPE'])) {
                             $target_student_id = intval($matches[1]);
 
                             $f_name = !empty($faculty_name) ? $faculty_name : 'Faculty';
-                            $notif_msg = !empty($content) ? $content : ("Sent an attachment: " . $file_name);
-                            $notification_body = strlen($notif_msg) > 100 ? substr($notif_msg, 0, 97) . '...' : $notif_msg;
+                            $notification_body = strlen($content) > 100 ? substr($content, 0, 97) . '...' : $content;
 
                             ExpoHelper::routeNotification($con, [$target_student_id], "New Message from $f_name", $notification_body, ['type' => 'dm', 'groupId' => $g_id, 'channelId' => 'default']);
                         }
@@ -287,8 +257,7 @@ if (isset($_POST['POST_TYPE'])) {
                             $member_ids[] = $mr['user_id'];
 
                         if (!empty($member_ids)) {
-                            $notif_msg = !empty($content) ? $content : ("Sent an attachment: " . $file_name);
-                            $notification_body = strlen($notif_msg) > 100 ? substr($notif_msg, 0, 97) . '...' : $notif_msg;
+                            $notification_body = strlen($content) > 100 ? substr($content, 0, 97) . '...' : $content;
                             ExpoHelper::routeNotification($con, $member_ids, "New Message in $g_name", $notification_body, ['type' => 'group', 'groupId' => $g_id, 'channelId' => 'default']);
                         }
                     }
@@ -425,9 +394,20 @@ if (isset($_POST['POST_TYPE'])) {
 
     if ($type === 'SEARCH_STUDENTS') {
         $query = mysqli_real_escape_string($con, $_POST['query'] ?? '');
-        $sql = "SELECT s_id, s_name, s_roll_no FROM student 
-                WHERE s_name LIKE '%$query%' OR s_roll_no LIKE '%$query%' 
-                LIMIT 10";
+        $include_shortterm = isset($_POST['include_shortterm']) ? intval($_POST['include_shortterm']) : 0;
+
+        if ($include_shortterm) {
+            $sql = "SELECT s_id, s_name, s_roll_no, 'student' as s_type FROM student 
+                    WHERE s_name LIKE '%$query%' OR s_roll_no LIKE '%$query%' 
+                    UNION
+                    SELECT sts_id as s_id, sts_name as s_name, sts_roll_no as s_roll_no, 'shortterm_student' as s_type FROM short_term_student
+                    WHERE sts_name LIKE '%$query%' OR sts_roll_no LIKE '%$query%'
+                    LIMIT 10";
+        } else {
+            $sql = "SELECT s_id, s_name, s_roll_no, 'student' as s_type FROM student 
+                    WHERE s_name LIKE '%$query%' OR s_roll_no LIKE '%$query%' 
+                    LIMIT 10";
+        }
         $res = $con->query($sql);
         $data = [];
         if ($res) {
@@ -458,9 +438,10 @@ if (isset($_POST['POST_TYPE'])) {
     if ($type === 'REMOVE_MEMBER') {
         $g_id = intval($_POST['groupId'] ?? 0);
         $s_id = intval($_POST['studentId'] ?? 0);
+        $s_type = mysqli_real_escape_string($con, $_POST['studentType'] ?? 'student');
         if ($g_id > 0 && $s_id > 0) {
-            $stmt = $con->prepare("DELETE FROM group_members WHERE group_id = ? AND user_id = ? AND user_role = 'student'");
-            $stmt->bind_param("ii", $g_id, $s_id);
+            $stmt = $con->prepare("DELETE FROM group_members WHERE group_id = ? AND user_id = ? AND user_role = ?");
+            $stmt->bind_param("iis", $g_id, $s_id, $s_type);
             if ($stmt->execute()) {
                 echo json_encode(['error' => 0, 'message' => 'Member removed']);
             } else {
@@ -476,14 +457,15 @@ if (isset($_POST['POST_TYPE'])) {
     if ($type === 'ADD_MEMBER') {
         $g_id = intval($_POST['groupId'] ?? 0);
         $s_id = intval($_POST['studentId'] ?? 0);
+        $s_type = mysqli_real_escape_string($con, $_POST['studentType'] ?? 'student');
         if ($g_id > 0 && $s_id > 0) {
             // Check if already a member
-            $check = $con->query("SELECT * FROM group_members WHERE group_id = $g_id AND user_id = $s_id AND user_role = 'student'");
+            $check = $con->query("SELECT * FROM group_members WHERE group_id = $g_id AND user_id = $s_id AND user_role = '$s_type'");
             if ($check && $check->num_rows > 0) {
                 echo json_encode(['error' => 1, 'message' => 'Student is already a member']);
             } else {
-                $stmt = $con->prepare("INSERT INTO group_members (group_id, user_id, user_role) VALUES (?, ?, 'student')");
-                $stmt->bind_param("ii", $g_id, $s_id);
+                $stmt = $con->prepare("INSERT INTO group_members (group_id, user_id, user_role) VALUES (?, ?, ?)");
+                $stmt->bind_param("iis", $g_id, $s_id, $s_type);
                 if ($stmt->execute()) {
                     echo json_encode(['error' => 0, 'message' => 'Member added']);
                 } else {
@@ -500,18 +482,21 @@ if (isset($_POST['POST_TYPE'])) {
     if ($type === 'GET_GROUP_MEMBERS') {
         $g_id = intval($_POST['groupId'] ?? 0);
         if ($g_id > 0) {
-            $sql = "SELECT gm.user_role, gm.user_id, s.s_name, s.s_roll_no 
+            $sql = "SELECT gm.user_role, gm.user_id, s.s_name, s.s_roll_no, sts.sts_name as shortterm_name, sts.sts_roll_no as shortterm_roll 
                     FROM group_members gm 
                     LEFT JOIN student s ON gm.user_id = s.s_id AND gm.user_role = 'student'
+                    LEFT JOIN short_term_student sts ON gm.user_id = sts.sts_id AND gm.user_role = 'shortterm_student'
                     WHERE gm.group_id = $g_id";
             $res = $con->query($sql);
             $members = [];
             if ($res) {
                 while ($row = $res->fetch_assoc()) {
                     if ($row['user_role'] === 'student') {
-                        $members[] = ['name' => $row['s_name'], 'role' => 'Student', 'info' => $row['s_roll_no'], 'student_id' => $row['user_id']];
+                        $members[] = ['name' => $row['s_name'], 'role' => 'Student', 'info' => $row['s_roll_no'], 'student_id' => $row['user_id'], 'user_role' => 'student'];
+                    } else if ($row['user_role'] === 'shortterm_student') {
+                        $members[] = ['name' => $row['shortterm_name'], 'role' => 'Short Term Student', 'info' => $row['shortterm_roll'], 'student_id' => $row['user_id'], 'user_role' => 'shortterm_student'];
                     } else {
-                        $members[] = ['name' => 'Faculty Admin', 'role' => ucfirst($row['user_role']), 'info' => '-'];
+                        $members[] = ['name' => 'Faculty Admin', 'role' => ucfirst($row['user_role']), 'info' => '-', 'user_role' => $row['user_role']];
                     }
                 }
             }
@@ -543,11 +528,13 @@ if (isset($_POST['POST_TYPE'])) {
             $stmt->close();
 
             if (!empty($student_ids)) {
+                $student_types = $_POST['student_types'] ?? [];
                 // Manual selection
-                $stmt = $con->prepare("INSERT INTO group_members (group_id, user_id, user_role) VALUES (?, ?, 'student')");
-                foreach ($student_ids as $s_id) {
+                $stmt = $con->prepare("INSERT INTO group_members (group_id, user_id, user_role) VALUES (?, ?, ?)");
+                foreach ($student_ids as $index => $s_id) {
                     $s_id = intval($s_id);
-                    $stmt->bind_param("ii", $groupId, $s_id);
+                    $s_type = isset($student_types[$index]) ? $student_types[$index] : 'student';
+                    $stmt->bind_param("iis", $groupId, $s_id, $s_type);
                     $stmt->execute();
                 }
                 $stmt->close();
@@ -581,16 +568,22 @@ if (isset($_POST['POST_TYPE'])) {
     }
 
     if ($type === 'SEND_BROADCAST') {
+        ob_start(); // Buffer any stray output (warnings/notices) to protect JSON
         $students_id = $_POST['students_id'] ?? [];
         $template_content = $_POST['template'] ?? '';
+        // Accept session_id from JS to include in redirect info
+        $sent_session_id = intval($_POST['session_id'] ?? 0);
 
         if (empty($students_id) || empty($template_content)) {
+            ob_clean();
             echo json_encode(['error' => 1, 'message' => 'Missing students or template content']);
             exit;
         }
 
         $success_count = 0;
         $error_count = 0;
+        $sent_session_name = '';
+        $sent_uni_short = '';
 
         $broadcast_id = 'BCT-' . time() . '-' . rand(1000, 9999);
         $expo_tokens = [];
@@ -598,7 +591,7 @@ if (isset($_POST['POST_TYPE'])) {
 
         foreach ($students_id as $s_id) {
             $s_id = intval($s_id);
-            // Fetch student details for placeholders
+            // Fetch student details
             $std_query = $con->query("SELECT s.*, c.course_name, sm.session_name 
                                      FROM student s 
                                      LEFT JOIN course_master c ON s.s_course_id = c.course_master_id 
@@ -607,31 +600,167 @@ if (isset($_POST['POST_TYPE'])) {
 
             if ($std_row = $std_query->fetch_assoc()) {
                 $personalized_msg = $template_content;
-                // Support multiple placeholder formats
-                $placeholders = [
+                $roll_no = $std_row['s_roll_no'];
+
+                // -------------------------------------------------------
+                // STEP 1: DB-driven placeholder resolution
+                // (Same logic as preview_template_msg.php)
+                // Extract all {placeholders} from template
+                // -------------------------------------------------------
+                preg_match_all('/\{[^{}]*\}/', $personalized_msg, $ph_matches);
+                $found_words = $ph_matches[0];
+
+                $tabArr = [];
+                foreach ($found_words as $ph_value) {
+                    $ph_esc = mysqli_real_escape_string($con, $ph_value);
+                    $ph_query = $con->query("SELECT t1.table_id, t1.table_field_id, t1.new_field_name,
+                                                    t2.table_name, t3.field_name
+                                            FROM temp_variable_master AS t1
+                                            INNER JOIN table_master AS t2 ON t1.table_id = t2.table_id
+                                            INNER JOIN table_field_master AS t3 ON t1.table_field_id = t3.field_id
+                                            WHERE t1.new_field_name = '$ph_esc' LIMIT 1");
+                    if ($ph_query && $ph_query->num_rows > 0) {
+                        $ph_row = $ph_query->fetch_assoc();
+                        $tabArr[] = [
+                            $ph_value => [
+                                'table_name' => $ph_row['table_name'],
+                                'field_name' => $ph_row['field_name'],
+                                'new_field_name' => $ph_row['new_field_name']
+                            ]
+                        ];
+                    }
+                }
+
+                // Resolve each placeholder against the DB
+                foreach ($tabArr as $tableArr) {
+                    foreach ($tableArr as $tableData) {
+                        $table_new_field = $tableData['new_field_name'];
+                        $newField = $tableData['field_name'];
+                        $tblName = $tableData['table_name'];
+
+                        // Determine which column to use as the WHERE condition
+                        $attributeFields = ["std_roll", "s_roll_no", "roll_no", "student_id", "std_id", "s_id", "roll"];
+                        $check_field = '';
+                        $condition = '';
+
+                        $schema = $con->query("DESCRIBE $tblName");
+                        if ($schema) {
+                            $columns = [];
+                            while ($sr = $schema->fetch_assoc())
+                                $columns[] = $sr['Field'];
+                            foreach ($attributeFields as $attrName) {
+                                if (in_array($attrName, $columns)) {
+                                    if ($attrName === 'std_roll') {
+                                        $check_field = 'std_roll';
+                                        $condition = "$check_field = $roll_no";
+                                    } elseif ($attrName === 's_roll_no') {
+                                        $check_field = 's_roll_no';
+                                        $condition = "$check_field = $roll_no";
+                                    } elseif ($attrName === 'student_id') {
+                                        $check_field = 'student_id';
+                                        $condition = "$check_field = $s_id";
+                                    } elseif ($attrName === 'std_id') {
+                                        $check_field = 'std_id';
+                                        $condition = "$check_field = $s_id";
+                                    } elseif ($attrName === 's_id') {
+                                        $check_field = 's_id';
+                                        $condition = "$check_field = $s_id";
+                                    } elseif ($attrName === 'roll') {
+                                        $check_field = 'roll';
+                                        $condition = "$check_field = $roll_no";
+                                    } else {
+                                        $check_field = 'roll_no';
+                                        $condition = "$check_field = $roll_no";
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (empty($condition))
+                            continue;
+
+                        // Fee fields
+                        if ($newField === 'due_fee' || $newField === 'fee_year_name') {
+                            $feeQ = $con->query("SELECT $newField FROM $tblName WHERE $condition AND fee_option_status = 'active'");
+                            if ($feeQ && $feeQ->num_rows > 0) {
+                                $feeRow = $feeQ->fetch_assoc();
+                                $personalized_msg = str_replace($table_new_field, $feeRow[$newField] ?? '', $personalized_msg);
+                            }
+                        }
+                        // Course ID → course name
+                        elseif (in_array($newField, ['s_course_id', 'course_id', 'subject_course_id'])) {
+                            $cQ = $con->query("SELECT t1.$newField, t2.course_name FROM $tblName AS t1
+                                              INNER JOIN course_master AS t2 ON t1.$newField = t2.course_master_id
+                                              WHERE $condition");
+                            if ($cQ && $cQ->num_rows > 0) {
+                                $cRow = $cQ->fetch_assoc();
+                                $personalized_msg = str_replace($table_new_field, $cRow['course_name'] ?? '', $personalized_msg);
+                            }
+                        }
+                        // Session ID → session name
+                        elseif (in_array($newField, ['s_session_id', 'session_id'])) {
+                            $sQ = $con->query("SELECT t1.$newField, t2.session_name FROM $tblName AS t1
+                                              INNER JOIN session_master AS t2 ON t1.$newField = t2.session_master_id
+                                              WHERE $condition");
+                            if ($sQ && $sQ->num_rows > 0) {
+                                $sRow = $sQ->fetch_assoc();
+                                $personalized_msg = str_replace($table_new_field, $sRow['session_name'] ?? '', $personalized_msg);
+                            }
+                        }
+                        // General field
+                        else {
+                            if ($table_new_field !== '{student_name}') {
+                                $gQ = $con->query("SELECT $newField FROM $tblName WHERE $condition");
+                                if ($gQ && $gQ->num_rows > 0) {
+                                    $gRow = $gQ->fetch_assoc();
+                                    $personalized_msg = str_replace($table_new_field, $gRow[$newField] ?? '', $personalized_msg);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // -------------------------------------------------------
+                // STEP 2: Fallback – simple hardcoded placeholders
+                // (handles {student_name} and others not in temp_variable_master)
+                // -------------------------------------------------------
+                $fallback = [
                     '{student_name}' => $std_row['s_name'],
-                    'std_name' => $std_row['s_name'],
                     '{roll_no}' => $std_row['s_roll_no'],
-                    'std_roll' => $std_row['s_roll_no'],
                     '{course}' => $std_row['course_name'],
                     '{student_course}' => $std_row['course_name'],
                     '{session}' => $std_row['session_name'],
-                    '{father_name}' => $std_row['s_father_name']
+                    '{father_name}' => $std_row['s_father_name'],
                 ];
-
-                foreach ($placeholders as $key => $val) {
+                foreach ($fallback as $key => $val) {
                     $personalized_msg = str_replace($key, $val ?? '', $personalized_msg);
                 }
 
+                // -------------------------------------------------------
+                // STEP 3: Save to messages table
+                // -------------------------------------------------------
                 $stmt = $con->prepare("INSERT INTO messages (sender_id, receiver_id, content, university, session, course, semester, groupId, createdAt) 
                                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())");
 
                 $uni = $std_row['s_university_id'];
                 $sess = $std_row['s_session_id'];
-                $course = $std_row['s_course_id'];
+                $crs = $std_row['s_course_id'];
                 $sem = "Sem" . ($std_row['s_cur_sem'] ?? 1);
 
-                $stmt->bind_param("iissssss", $faculty_id, $s_id, $personalized_msg, $uni, $sess, $course, $sem, $broadcast_id);
+                // Capture session info from first student for redirect
+                if (empty($sent_session_name) && !empty($std_row['session_name'])) {
+                    $sent_session_name = $std_row['session_name'];
+                    if ($sent_session_id === 0)
+                        $sent_session_id = $sess;
+                    // Fetch university short name
+                    $uni_res = $con->query("SELECT university_short_name FROM university WHERE id = " . intval($uni));
+                    if ($uni_res && $ur = $uni_res->fetch_assoc()) {
+                        $sent_uni_short = $ur['university_short_name'] ?? '';
+                    }
+                }
+
+                $stmt->bind_param("iissssss", $faculty_id, $s_id, $personalized_msg, $uni, $sess, $crs, $sem, $broadcast_id);
                 if ($stmt->execute()) {
                     $success_count++;
                 } else {
@@ -642,22 +771,31 @@ if (isset($_POST['POST_TYPE'])) {
         }
 
         // NEW: Send Push (Expo + Firebase)
-        if (!empty($students_id)) {
+        if (!empty($students_id) && class_exists('ExpoHelper')) {
             $notification_title = "New Academic Notice";
             $notification_body = strlen($template_content) > 100 ? substr($template_content, 0, 97) . '...' : $template_content;
             ExpoHelper::routeNotification($con, $students_id, $notification_title, $notification_body, ['type' => 'notice', 'broadcast_id' => $broadcast_id, 'channelId' => 'default']);
         }
 
-        echo json_encode(['error' => 0, 'message' => "Successfully sent to $success_count students."]);
+        ob_clean(); // Discard any stray output before sending JSON
+        echo json_encode([
+            'error' => 0,
+            'message' => "Successfully sent to $success_count students.",
+            'session_id' => $sent_session_id,
+            'session_name' => $sent_session_name,
+            'uni_short' => $sent_uni_short,
+        ]);
         exit;
     }
 
     if ($type === 'GET_SESSION_COURSES') {
         $session_id = intval($_POST['session_id'] ?? 0);
+        $exclusion_key = "SES-" . $session_id;
         $sql = "SELECT c.course_master_id as id, c.course_short_name as sname, c.course_name as name, COUNT(s.s_id) as student_count 
                 FROM student s 
                 JOIN course_master c ON s.s_course_id = c.course_master_id 
                 WHERE s.s_session_id = $session_id 
+                AND s.s_id NOT IN (SELECT student_id FROM chat_group_exclusions WHERE group_key = '$exclusion_key')
                 GROUP BY c.course_master_id 
                 ORDER BY student_count DESC";
         $res = $con->query($sql);
@@ -713,6 +851,329 @@ if (isset($_POST['POST_TYPE'])) {
         }
         exit;
     }
+
+    // --- NEW: FACULTY CHAT SYSTEM HANDLERS (Option B) ---
+    if ($type === 'GET_FACULTY_MESSAGES') {
+        $groupId = $_POST['groupId'] ?? '';
+        $deptId = intval($_POST['department_id'] ?? 0);
+
+        $sql = "SELECT m.*, f.faculty_name as sender_name, f.faculty_short_name as sender_short,
+                fr.faculty_name as recipient_name
+                FROM faculty_messages m 
+                LEFT JOIN faculty_master f ON m.sender_id = f.faculty_master_id
+                LEFT JOIN faculty_master fr ON m.receiver_id = fr.faculty_master_id
+                WHERE 1=1";
+
+        if (!empty($groupId)) {
+            $g = mysqli_real_escape_string($con, $groupId);
+            if (strpos($g, 'DM-') === 0) {
+                $sql .= " AND m.groupId = '$g'";
+            } else {
+                $g_id = intval($g);
+                $sql .= " AND m.groupId = '$g_id'";
+            }
+        } elseif ($deptId > 0) {
+            $sql .= " AND (m.department_id = $deptId OR m.groupId = 'DEP-$deptId')";
+        } else {
+            $sql .= " AND (m.groupId IS NULL OR m.groupId = '0' OR m.groupId = '')";
+        }
+        $sql .= " ORDER BY m.createdAt ASC";
+
+        if (!empty($groupId)) {
+            $g = mysqli_real_escape_string($con, $groupId);
+            $con->query("UPDATE faculty_messages SET is_read = 1, read_at = NOW() WHERE groupId = '$g' AND sender_id != $faculty_id AND is_read = 0");
+        } elseif ($deptId > 0) {
+            $con->query("UPDATE faculty_messages SET is_read = 1, read_at = NOW() WHERE (groupId = 'DEP-$deptId' OR department_id = $deptId) AND sender_id != $faculty_id AND is_read = 0");
+        }
+
+        $result = $con->query($sql);
+        $messages = [];
+        if ($result) {
+            while ($row = $result->fetch_assoc()) {
+                $messages[] = $row;
+            }
+        }
+        echo json_encode(['error' => 0, 'data' => $messages]);
+        exit;
+    }
+
+    if ($type === 'SEND_FACULTY_MESSAGE') {
+        $content = $_POST['content'] ?? '';
+        $groupId = $_POST['groupId'] ?? '';
+        $deptId = intval($_POST['department_id'] ?? 0);
+
+        if (empty($content)) {
+            echo json_encode(['error' => 1, 'message' => 'Message content is empty']);
+            exit;
+        }
+
+        if (empty($groupId) && $deptId > 0) {
+            $g_id = "DEP-" . $deptId;
+            $stmt = $con->prepare("INSERT INTO faculty_messages (sender_id, content, department_id, groupId, createdAt) VALUES (?, ?, ?, ?, NOW())");
+            $stmt->bind_param("isis", $faculty_id, $content, $deptId, $g_id);
+            if ($stmt->execute()) {
+                $tok_query = $con->query("SELECT push_token FROM user_push_tokens WHERE user_role = 'faculty' AND user_id IN (SELECT faculty_master_id FROM faculty_master WHERE faculty_department_id = $deptId AND faculty_master_id != $faculty_id)");
+                $tokens = [];
+                if ($tok_query) {
+                    while ($r = $tok_query->fetch_assoc())
+                        $tokens[] = $r['push_token'];
+                }
+                if (!empty($tokens) && class_exists('ExpoHelper')) {
+                    $body = strlen($content) > 100 ? substr($content, 0, 97) . '...' : $content;
+                    ExpoHelper::sendNotification($tokens, "Department Announcement", $body, ['type' => 'fac_dept', 'groupId' => $g_id]);
+                }
+                echo json_encode(['error' => 0, 'message' => 'Broadcast sent']);
+            } else {
+                echo json_encode(['error' => 1, 'message' => $stmt->error]);
+            }
+            $stmt->close();
+            exit;
+        }
+
+        if (!empty($groupId)) {
+            $g_id = mysqli_real_escape_string($con, $groupId);
+            if (strpos($g_id, 'DM-') === 0) {
+                $parts = explode('-', $g_id);
+                $receiver_id = 0;
+                foreach ($parts as $part) {
+                    if (strpos($part, 'F') === 0) {
+                        $id_val = intval(substr($part, 1));
+                        if ($id_val != $faculty_id) {
+                            $receiver_id = $id_val;
+                            break;
+                        }
+                    }
+                }
+                if ($receiver_id == 0 && count($parts) >= 3) {
+                    $receiver_id = intval(substr($parts[2], 1));
+                }
+
+                $stmt = $con->prepare("INSERT INTO faculty_messages (sender_id, receiver_id, content, groupId, createdAt) VALUES (?, ?, ?, ?, NOW())");
+                $stmt->bind_param("iiss", $faculty_id, $receiver_id, $content, $g_id);
+                if ($stmt->execute()) {
+                    $tok_query = $con->query("SELECT push_token FROM user_push_tokens WHERE user_id = $receiver_id AND user_role = 'faculty'");
+                    $tokens = [];
+                    if ($tok_query) {
+                        while ($r = $tok_query->fetch_assoc())
+                            $tokens[] = $r['push_token'];
+                    }
+                    if (!empty($tokens) && class_exists('ExpoHelper')) {
+                        $body = strlen($content) > 100 ? substr($content, 0, 97) . '...' : $content;
+                        ExpoHelper::sendNotification($tokens, "New message from $faculty_name", $body, ['type' => 'fac_dm', 'groupId' => $g_id]);
+                    }
+                    echo json_encode(['error' => 0, 'message' => 'DM sent']);
+                } else {
+                    echo json_encode(['error' => 1, 'message' => $stmt->error]);
+                }
+                $stmt->close();
+            } else {
+                $g_id_int = intval($groupId);
+                $stmt = $con->prepare("INSERT INTO faculty_messages (sender_id, content, groupId, createdAt) VALUES (?, ?, ?, NOW())");
+                $stmt->bind_param("iss", $faculty_id, $content, $g_id_int);
+                if ($stmt->execute()) {
+                    $gn_query = $con->query("SELECT group_name FROM faculty_chat_groups WHERE id = $g_id_int");
+                    $g_name = ($gn_query && $r = $gn_query->fetch_assoc()) ? $r['group_name'] : 'Faculty Group';
+
+                    $m_query = $con->query("SELECT user_id FROM faculty_group_members WHERE group_id = $g_id_int AND user_id != $faculty_id");
+                    $m_ids = [];
+                    if ($m_query) {
+                        while ($r = $m_query->fetch_assoc())
+                            $m_ids[] = $r['user_id'];
+                    }
+                    if (!empty($m_ids)) {
+                        $ids_str = implode(',', array_map('intval', $m_ids));
+                        $tok_query = $con->query("SELECT push_token FROM user_push_tokens WHERE user_role = 'faculty' AND user_id IN ($ids_str)");
+                        $tokens = [];
+                        if ($tok_query) {
+                            while ($r = $tok_query->fetch_assoc())
+                                $tokens[] = $r['push_token'];
+                        }
+                        if (!empty($tokens) && class_exists('ExpoHelper')) {
+                            $body = strlen($content) > 100 ? substr($content, 0, 97) . '...' : $content;
+                            ExpoHelper::sendNotification($tokens, "New message in $g_name", $body, ['type' => 'fac_group', 'groupId' => $g_id_int]);
+                        }
+                    }
+                    echo json_encode(['error' => 0, 'message' => 'Group message sent']);
+                } else {
+                    echo json_encode(['error' => 1, 'message' => $stmt->error]);
+                }
+                $stmt->close();
+            }
+            exit;
+        }
+
+        echo json_encode(['error' => 1, 'message' => 'Invalid destination']);
+        exit;
+    }
+
+    if ($type === 'SEARCH_FACULTY') {
+        $query = mysqli_real_escape_string($con, $_POST['query'] ?? '');
+        $sql = "SELECT faculty_master_id as id, faculty_name as name, faculty_id as code 
+                FROM faculty_master 
+                WHERE (faculty_name LIKE '%$query%' OR faculty_id LIKE '%$query%')
+                AND faculty_status = 'Active' AND Current_faculty = 'Current' AND faculty_master_id != $faculty_id
+                LIMIT 10";
+        $res = $con->query($sql);
+        $data = [];
+        if ($res) {
+            while ($row = $res->fetch_assoc()) {
+                $data[] = $row;
+            }
+        }
+        echo json_encode(['error' => 0, 'data' => $data]);
+        exit;
+    }
+
+    if ($type === 'CREATE_FACULTY_GROUP') {
+        $name = mysqli_real_escape_string($con, $_POST['group_name'] ?? '');
+        $faculty_ids = $_POST['faculty_ids'] ?? [];
+
+        $con->begin_transaction();
+        try {
+            $stmt = $con->prepare("INSERT INTO faculty_chat_groups (group_name, created_by) VALUES (?, ?)");
+            $stmt->bind_param("si", $name, $faculty_id);
+            $stmt->execute();
+            $groupId = $con->insert_id;
+            $stmt->close();
+
+            $stmt = $con->prepare("INSERT INTO faculty_group_members (group_id, user_id, user_role) VALUES (?, ?, 'faculty')");
+            $stmt->bind_param("ii", $groupId, $faculty_id);
+            $stmt->execute();
+
+            foreach ($faculty_ids as $fid) {
+                $fid = intval($fid);
+                $stmt->bind_param("ii", $groupId, $fid);
+                $stmt->execute();
+            }
+            $stmt->close();
+
+            $con->commit();
+            echo json_encode(['error' => 0, 'message' => 'Faculty group created successfully']);
+        } catch (Exception $e) {
+            $con->rollback();
+            echo json_encode(['error' => 1, 'message' => $e->getMessage()]);
+        }
+        exit;
+    }
+
+    if ($type === 'EDIT_FACULTY_GROUP') {
+        $g_id = intval($_POST['groupId'] ?? 0);
+        $newName = $_POST['group_name'] ?? '';
+        if ($g_id > 0 && !empty($newName)) {
+            $stmt = $con->prepare("UPDATE faculty_chat_groups SET group_name = ? WHERE id = ?");
+            $stmt->bind_param("si", $newName, $g_id);
+            if ($stmt->execute()) {
+                echo json_encode(['error' => 0, 'message' => 'Group renamed']);
+            } else {
+                echo json_encode(['error' => 1, 'message' => $stmt->error]);
+            }
+            $stmt->close();
+        } else {
+            echo json_encode(['error' => 1, 'message' => 'Invalid data']);
+        }
+        exit;
+    }
+
+    if ($type === 'DELETE_FACULTY_GROUP') {
+        $g_id = intval($_POST['groupId'] ?? 0);
+        if ($g_id > 0) {
+            $stmt = $con->prepare("DELETE FROM faculty_chat_groups WHERE id = ? AND created_by = ?");
+            $stmt->bind_param("ii", $g_id, $faculty_id);
+            if ($stmt->execute()) {
+                echo json_encode(['error' => 0, 'message' => 'Group deleted successfully']);
+            } else {
+                echo json_encode(['error' => 1, 'message' => $stmt->error]);
+            }
+            $stmt->close();
+        } else {
+            echo json_encode(['error' => 1, 'message' => 'Invalid Group']);
+        }
+        exit;
+    }
+
+    if ($type === 'GET_FACULTY_GROUP_MEMBERS') {
+        $g_id = intval($_POST['groupId'] ?? 0);
+        if ($g_id > 0) {
+            $sql = "SELECT gm.user_id, f.faculty_name, f.faculty_id 
+                    FROM faculty_group_members gm 
+                    LEFT JOIN faculty_master f ON gm.user_id = f.faculty_master_id
+                    WHERE gm.group_id = $g_id";
+            $res = $con->query($sql);
+            $members = [];
+            if ($res) {
+                while ($row = $res->fetch_assoc()) {
+                    $members[] = [
+                        'name' => $row['faculty_name'],
+                        'role' => 'Faculty',
+                        'info' => $row['faculty_id'],
+                        'student_id' => $row['user_id']
+                    ];
+                }
+            }
+            echo json_encode(['error' => 0, 'data' => $members]);
+        } else {
+            echo json_encode(['error' => 1, 'message' => 'Invalid Group']);
+        }
+        exit;
+    }
+
+    if ($type === 'ADD_FACULTY_GROUP_MEMBER') {
+        $g_id = intval($_POST['groupId'] ?? 0);
+        $fid = intval($_POST['facultyId'] ?? 0);
+        if ($g_id > 0 && $fid > 0) {
+            $check = $con->query("SELECT * FROM faculty_group_members WHERE group_id = $g_id AND user_id = $fid");
+            if ($check && $check->num_rows > 0) {
+                echo json_encode(['error' => 1, 'message' => 'Faculty member is already in the group']);
+            } else {
+                $stmt = $con->prepare("INSERT INTO faculty_group_members (group_id, user_id, user_role) VALUES (?, ?, 'faculty')");
+                $stmt->bind_param("ii", $g_id, $fid);
+                if ($stmt->execute()) {
+                    echo json_encode(['error' => 0, 'message' => 'Member added']);
+                } else {
+                    echo json_encode(['error' => 1, 'message' => $stmt->error]);
+                }
+                $stmt->close();
+            }
+        } else {
+            echo json_encode(['error' => 1, 'message' => 'Invalid Data']);
+        }
+        exit;
+    }
+
+    if ($type === 'REMOVE_FACULTY_GROUP_MEMBER') {
+        $g_id = intval($_POST['groupId'] ?? 0);
+        $fid = intval($_POST['facultyId'] ?? 0);
+        if ($g_id > 0 && $fid > 0) {
+            $stmt = $con->prepare("DELETE FROM faculty_group_members WHERE group_id = ? AND user_id = ?");
+            $stmt->bind_param("ii", $g_id, $fid);
+            if ($stmt->execute()) {
+                echo json_encode(['error' => 0, 'message' => 'Member removed']);
+            } else {
+                echo json_encode(['error' => 1, 'message' => $stmt->error]);
+            }
+            $stmt->close();
+        } else {
+            echo json_encode(['error' => 1, 'message' => 'Invalid Data']);
+        }
+        exit;
+    }
+
+    if ($type === 'GET_DEPT_FACULTY') {
+        $deptId = intval($_POST['department_id'] ?? 0);
+        $sql = "SELECT faculty_master_id as id, faculty_name as name, faculty_id as code 
+                FROM faculty_master 
+                WHERE faculty_department_id = $deptId AND faculty_status = 'Active' AND Current_faculty = 'Current'
+                ORDER BY faculty_name ASC";
+        $res = $con->query($sql);
+        $data = [];
+        if ($res) {
+            while ($row = $res->fetch_assoc()) {
+                $data[] = $row;
+            }
+        }
+        echo json_encode(['error' => 0, 'data' => $data]);
+        exit;
+    }
 }
 
 // Fetch Initial Data
@@ -729,21 +1190,84 @@ if ($res)
         $allCourses[] = $row;
 
 $allSessions = [];
-$res = $con->query("SELECT s.session_master_id as id, s.session_name as name, u.university_short_name as uni_short 
-                        FROM session_master s 
-                        LEFT JOIN university u ON s.university_id = u.id 
-                        ORDER BY s.session_master_id DESC");
+$res = $con->query("
+    SELECT s.session_master_id as id, s.session_name as name, u.university_short_name as uni_short,
+           (SELECT content FROM messages WHERE session = CAST(s.session_master_id AS CHAR) ORDER BY createdAt DESC LIMIT 1) as last_msg,
+           (SELECT createdAt FROM messages WHERE session = CAST(s.session_master_id AS CHAR) ORDER BY createdAt DESC LIMIT 1) as last_msg_time
+    FROM session_master s 
+    LEFT JOIN university u ON s.university_id = u.id 
+    ORDER BY last_msg_time DESC, s.session_master_id DESC
+");
 if ($res)
     while ($row = $res->fetch_assoc())
         $allSessions[] = $row;
 
+$session_courses = [];
+if (!empty($allSessions)) {
+    $session_ids = array_column($allSessions, 'id');
+    $ids_str = implode(',', array_map('intval', $session_ids));
+    $courses_sql = "SELECT s.s_session_id as session_id, c.course_short_name as sname, COUNT(s.s_id) as student_count 
+                    FROM student s 
+                    JOIN course_master c ON s.s_course_id = c.course_master_id 
+                    WHERE s.s_session_id IN ($ids_str)
+                    AND s.s_id NOT IN (SELECT student_id FROM chat_group_exclusions WHERE group_key = CONCAT('SES-', s.s_session_id))
+                    GROUP BY s.s_session_id, c.course_master_id 
+                    ORDER BY student_count DESC";
+    $c_res = $con->query($courses_sql);
+    if ($c_res) {
+        while ($cr = $c_res->fetch_assoc()) {
+            $session_courses[$cr['session_id']][] = $cr;
+        }
+    }
+}
+
 $groups = [];
-$res = $con->query("SELECT g.* FROM chat_groups g 
-                      JOIN group_members m ON g.id = m.group_id 
-                      WHERE m.user_id = '$faculty_id' AND m.user_role = 'faculty'");
+$res = $con->query("
+    SELECT g.*, 
+           (SELECT content FROM messages WHERE groupId = CAST(g.id AS CHAR) ORDER BY createdAt DESC LIMIT 1) as last_msg,
+           (SELECT createdAt FROM messages WHERE groupId = CAST(g.id AS CHAR) ORDER BY createdAt DESC LIMIT 1) as last_msg_time 
+    FROM chat_groups g 
+    JOIN group_members m ON g.id = m.group_id 
+    WHERE m.user_id = '$faculty_id' AND m.user_role = 'faculty'
+    ORDER BY last_msg_time DESC, g.id DESC
+");
 if ($res)
     while ($row = $res->fetch_assoc())
         $groups[] = $row;
+
+// --- NEW: FACULTY CHAT INITIALIZATION (Option B) ---
+$is_admin = (isset($_SESSION["giit_admin_department"]) && (string) $_SESSION["giit_admin_department"] === '99');
+$faculty_groups = [];
+$departments = [];
+$active_faculty_list = [];
+
+if ($is_admin) {
+    // Fetch all active faculty members
+    $res = $con->query("SELECT faculty_master_id as id, faculty_name as name, faculty_id as code FROM faculty_master WHERE faculty_status = 'Active' AND Current_faculty = 'Current' AND faculty_master_id != '$faculty_id' ORDER BY faculty_name ASC");
+    if ($res) {
+        while ($row = $res->fetch_assoc()) {
+            $active_faculty_list[] = $row;
+        }
+    }
+
+    // Fetch all departments
+    $res = $con->query("SELECT department_master_id as id, department_name as name, department_short_name as sname FROM department_master ORDER BY department_name ASC");
+    if ($res) {
+        while ($row = $res->fetch_assoc()) {
+            $departments[] = $row;
+        }
+    }
+}
+
+// Fetch faculty groups current user is a member of
+$res = $con->query("SELECT g.* FROM faculty_chat_groups g 
+                      JOIN faculty_group_members m ON g.id = m.group_id 
+                      WHERE m.user_id = '$faculty_id'");
+if ($res) {
+    while ($row = $res->fetch_assoc()) {
+        $faculty_groups[] = $row;
+    }
+}
 
 define('TITLE', 'GIITChat | Faculty Portal');
 
@@ -757,6 +1281,7 @@ if (!isset($giit)) {
 }
 
 // Standard portal header inclusion
+$PAGE_NAME = "GIIT MESSANGER";
 if (file_exists("pages/header.php")) {
     include_once("pages/header.php");
 } elseif (file_exists("header.php")) {
@@ -1475,13 +2000,13 @@ if (file_exists("pages/header.php")) {
         <!-- Sidebar -->
         <div class="chat-sidebar">
             <div class="sidebar-header">
-                <strong>Messages</strong>
+
                 <div style="display: flex; gap: 8px;">
                     <button class="header-btn" onclick="$('#groupModal').modal('show')" title="New Group">
-                        <i class="fa fa-users"></i>
+                        <i class="fa fa-users"></i> New Group
                     </button>
                     <button class="header-btn" onclick="$('#dmModal').modal('show')" title="New Direct Message">
-                        <i class="fa fa-user-plus"></i>
+                        <i class="fa fa-user-plus"></i>Direct Msg
                     </button>
                 </div>
             </div>
@@ -1492,7 +2017,7 @@ if (file_exists("pages/header.php")) {
                             style="background: linear-gradient(135deg, #ec4899 0%, #db2777 100%); color: white;"><i
                                 class="fa fa-bullhorn"></i></div>
                         <div class="chat-item-content">
-                            <div class="chat-item-title">Academic Broadcast</div>
+                            <div class="chat-item-title">Click here to send manually</div>
                             <div class="chat-item-subtitle">Send notices to classes</div>
                         </div>
                     </div>
@@ -1511,7 +2036,17 @@ if (file_exists("pages/header.php")) {
                                         class="fa fa-users"></i></div>
                                 <div class="chat-item-content">
                                     <div class="chat-item-title"><?= htmlspecialchars($g['group_name']) ?></div>
-                                    <div class="chat-item-subtitle">Custom Group Chat</div>
+                                    <div class="chat-item-subtitle"
+                                        style="display: flex; justify-content: space-between; gap: 5px;">
+                                        <span
+                                            style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                            <?= !empty($g['last_msg']) ? htmlspecialchars($g['last_msg']) : 'Custom Group Chat' ?>
+                                        </span>
+                                        <?php if (!empty($g['last_msg_time'])): ?>
+                                            <span
+                                                style="font-size: 0.65rem; color: #94a3b8; flex-shrink: 0; margin-left: 5px;"><?= date('H:i', strtotime($g['last_msg_time'])) ?></span>
+                                        <?php endif; ?>
+                                    </div>
                                 </div>
                             </div>
                             <div class="chat-item-action" style="margin-left: 10px; display: flex; gap: 5px;">
@@ -1537,7 +2072,7 @@ if (file_exists("pages/header.php")) {
 
                 <div class="sidebar-section-label"
                     style="padding: 12px 20px 5px; font-size: 0.7rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; border-top: 1px solid #f1f5f9; margin-top: 10px;">
-                    University Sessions</div>
+                    Existing broadcast</div>
                 <?php foreach ($allSessions as $s): ?>
                     <div class="chat-item"
                         onclick="selectChannel('SES-<?= $s['id'] ?>', 'Session: <?= addslashes($s['name']) ?> (<?= addslashes($s['uni_short'] ?? '') ?>)', event)">
@@ -1548,7 +2083,32 @@ if (file_exists("pages/header.php")) {
                             <div class="chat-item-content">
                                 <div class="chat-item-title"><?= htmlspecialchars($s['name']) ?>
                                     (<?= htmlspecialchars($s['uni_short'] ?? '') ?>)</div>
-                                <div class="chat-item-subtitle">Auto-Group</div>
+                                <div class="chat-item-subtitle"
+                                    style="display: flex; justify-content: space-between; gap: 5px;">
+                                    <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                        <?= !empty($s['last_msg']) ? htmlspecialchars($s['last_msg']) : 'Auto Group (Session Based Broadcast)' ?>
+                                    </span>
+                                    <?php if (!empty($s['last_msg_time'])): ?>
+                                        <span
+                                            style="font-size: 0.65rem; color: #94a3b8; flex-shrink: 0; margin-left: 5px;"><?= date('H:i', strtotime($s['last_msg_time'])) ?></span>
+                                    <?php endif; ?>
+                                </div>
+                                <?php if (isset($session_courses[$s['id']]) && !empty($session_courses[$s['id']])): ?>
+                                    <div style="display: flex; gap: 4px; margin-top: 6px; flex-wrap: wrap;">
+                                        <?php
+                                        $colors = ['#eff6ff', '#f0fdf4', '#fdf4ff', '#fff7ed', '#fef2f2'];
+                                        $text_colors = ['#3b82f6', '#10b981', '#a855f7', '#f97316', '#ef4444'];
+                                        foreach ($session_courses[$s['id']] as $idx => $sc):
+                                            $c_idx = $idx % count($colors);
+                                            ?>
+                                            <span
+                                                style="font-size: 0.65rem; background: <?= $colors[$c_idx] ?>; color: <?= $text_colors[$c_idx] ?>; border: 1px solid <?= $text_colors[$c_idx] ?>40; padding: 2px 6px; border-radius: 12px; font-weight: 600;">
+                                                <?= htmlspecialchars($sc['sname']) ?> <span
+                                                    style="opacity: 0.7; margin-left: 2px;"><?= $sc['student_count'] ?></span>
+                                            </span>
+                                        <?php endforeach; ?>
+                                    </div>
+                                <?php endif; ?>
                             </div>
                         </div>
                     </div>
@@ -1597,23 +2157,8 @@ if (file_exists("pages/header.php")) {
                 </div>
                 <div class="composer-area">
                     <form id="chat-form" onsubmit="return false;">
-                        <!-- File Preview Area -->
-                        <div id="chat-file-preview" style="display: none; padding: 8px 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-bottom: none; border-radius: 12px 12px 0 0; align-items: center; justify-content: space-between; margin-bottom: -1px; position: relative; z-index: 5;">
-                            <div style="display: flex; align-items: center; gap: 8px;">
-                                <i class="fa fa-file" id="preview-file-icon" style="color: #3b82f6; font-size: 1.1rem;"></i>
-                                <span id="preview-file-name" style="font-size: 0.85rem; font-weight: 600; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 250px;">filename.pdf</span>
-                                <span id="preview-file-size" style="font-size: 0.75rem; color: #64748b;"> (2.4 MB)</span>
-                            </div>
-                            <button type="button" onclick="cancelChatFile()" style="background: none; border: none; color: #ef4444; cursor: pointer; font-size: 1.2rem; padding: 0 5px;">
-                                <i class="fa fa-times-circle"></i>
-                            </button>
-                        </div>
-                        <div class="composer-input-wrapper" style="position: relative; display: flex; align-items: center;">
-                            <label for="chat-file-input" style="cursor: pointer; margin: 0; padding: 8px 12px 8px 0; display: flex; align-items: center; color: #64748b; transition: color 0.2s;" onmouseover="this.style.color='#3b82f6'" onmouseout="this.style.color='#64748b'" title="Attach any file (PDF, Word, Excel, Image, etc.)">
-                                <i class="fa fa-paperclip" style="font-size: 1.3rem;"></i>
-                                <input type="file" id="chat-file-input" style="display: none;" onchange="handleChatFileSelect(this)">
-                            </label>
-                            <textarea id="msg-content" placeholder="Type your message here..." style="flex: 1;"
+                        <div class="composer-input-wrapper">
+                            <textarea id="msg-content" placeholder="Type your message here..."
                                 oninput="this.style.height = ''; this.style.height = Math.min(this.scrollHeight, 120) + 'px'"></textarea>
                             <button type="button" id="send-btn" class="send-btn">
                                 <span>Send</span>
@@ -2354,48 +2899,6 @@ if (file_exists("pages/footer.php")) {
                                 `;
                             }
 
-                            let fileHTML = '';
-                            if (msg.file_path) {
-                                const fileName = msg.file_name || 'Attached File';
-                                const filePath = msg.file_path;
-                                const ext = fileName.split('.').pop().toLowerCase();
-                                
-                                let iconClass = 'fa-file-o';
-                                let iconColor = '#64748b';
-                                if (['pdf'].includes(ext)) { iconClass = 'fa-file-pdf-o'; iconColor = '#ef4444'; }
-                                else if (['doc', 'docx'].includes(ext)) { iconClass = 'fa-file-word-o'; iconColor = '#3b82f6'; }
-                                else if (['xls', 'xlsx'].includes(ext)) { iconClass = 'fa-file-excel-o'; iconColor = '#10b981'; }
-                                else if (['png', 'jpg', 'jpeg', 'gif'].includes(ext)) { iconClass = 'fa-file-image-o'; iconColor = '#8b5cf6'; }
-                                else if (['zip', 'rar'].includes(ext)) { iconClass = 'fa-file-archive-o'; iconColor = '#f59e0b'; }
-                                
-                                const fileBg = isMe ? 'rgba(255, 255, 255, 0.18)' : 'rgba(0, 0, 0, 0.04)';
-                                const fileBorder = isMe ? 'rgba(255, 255, 255, 0.25)' : 'rgba(0, 0, 0, 0.08)';
-                                const fileTextClr = isMe ? '#fff' : 'var(--text-main)';
-                                const downloadBtnBg = isMe ? 'white' : 'var(--primary)';
-                                const downloadBtnIconClr = isMe ? 'var(--primary)' : 'white';
-                                
-                                let imgThumbnail = '';
-                                if (['png', 'jpg', 'jpeg', 'gif'].includes(ext)) {
-                                    imgThumbnail = `<a href="${filePath}" target="_blank"><img src="${filePath}" style="max-width: 100%; max-height: 150px; border-radius: 8px; margin-top: 8px; display: block; border: 1px solid rgba(0,0,0,0.05);" /></a>`;
-                                }
-                                
-                                fileHTML = `
-                                    <div style="background: ${fileBg}; border: 1px solid ${fileBorder}; color: ${fileTextClr}; border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; display: flex; align-items: center; gap: 12px; backdrop-filter: blur(5px);">
-                                        <div style="width: 40px; height: 40px; border-radius: 8px; background: white; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05); flex-shrink: 0;">
-                                            <i class="fa ${iconClass}" style="font-size: 1.4rem; color: ${iconColor};"></i>
-                                        </div>
-                                        <div style="flex: 1; overflow: hidden; display: flex; flex-direction: column; text-align: left;">
-                                            <span style="font-size: 0.82rem; font-weight: 600; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">${fileName}</span>
-                                            <span style="font-size: 0.7rem; opacity: 0.8; text-transform: uppercase;">${ext} document</span>
-                                        </div>
-                                        <a href="${filePath}" download="${fileName}" style="width: 32px; height: 32px; border-radius: 50%; background: ${downloadBtnBg}; color: ${downloadBtnIconClr}; display: flex; align-items: center; justify-content: center; transition: all 0.2s; box-shadow: 0 2px 4px rgba(0,0,0,0.1); flex-shrink: 0;" onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'">
-                                            <i class="fa fa-download" style="font-size: 0.9rem;"></i>
-                                        </a>
-                                    </div>
-                                    ${imgThumbnail}
-                                `;
-                            }
-
                             let recipientLabel = '';
                             if (isMe) {
                                 if (msg.groupId && msg.groupId.toString().startsWith('BCT-')) {
@@ -2412,8 +2915,7 @@ if (file_exists("pages/footer.php")) {
                                         ${isMe ? 'You' : 'Student'}
                                     </div>
                                     ${recipientLabel}
-                                    ${fileHTML}
-                                    <div class="message-text" style="word-break: break-word; ${msg.content ? '' : 'display:none;'}">${msg.content}</div>
+                                    <div class="message-text" style="word-break: break-word;">${msg.content}</div>
                                     <div class="message-footer" style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px; font-size: 10px; opacity: 0.9;">
                                         <span><i class="fa fa-clock-o"></i> ${dateStr} ${time}</span>
                                         <div style="display: flex; align-items: center; gap: 4px;">
@@ -2434,51 +2936,12 @@ if (file_exists("pages/footer.php")) {
             });
     }
 
-    let selectedChatFile = null;
-
-    function handleChatFileSelect(input) {
-        if (input.files && input.files[0]) {
-            selectedChatFile = input.files[0];
-            const file = selectedChatFile;
-            
-            // Show preview
-            $('#preview-file-name').text(file.name);
-            const sizeInMB = (file.size / (1024 * 1024)).toFixed(2);
-            $('#preview-file-size').text(` (${sizeInMB} MB)`);
-            
-            // Set icon based on extension
-            const ext = file.name.split('.').pop().toLowerCase();
-            let iconClass = 'fa-file';
-            if (['pdf'].includes(ext)) iconClass = 'fa-file-pdf-o w3-text-red';
-            else if (['doc', 'docx'].includes(ext)) iconClass = 'fa-file-word-o w3-text-blue';
-            else if (['xls', 'xlsx'].includes(ext)) iconClass = 'fa-file-excel-o w3-text-green';
-            else if (['png', 'jpg', 'jpeg', 'gif'].includes(ext)) iconClass = 'fa-file-image-o w3-text-purple';
-            else if (['zip', 'rar'].includes(ext)) iconClass = 'fa-file-archive-o w3-text-orange';
-            
-            $('#preview-file-icon').attr('class', `fa ${iconClass}`);
-            $('#chat-file-preview').css('display', 'flex');
-            
-            // Adjust composer input borders
-            $('.composer-input-wrapper').css('border-radius', '0 0 16px 16px');
-        }
-    }
-
-    function cancelChatFile() {
-        selectedChatFile = null;
-        $('#chat-file-input').val('');
-        $('#chat-file-preview').hide();
-        $('.composer-input-wrapper').css('border-radius', '16px');
-    }
-
     function sendMessage() {
         const content = $('#msg-content').val();
-        if (!content && !selectedChatFile) return;
+        if (!content) return;
         const payload = new FormData();
         payload.append('POST_TYPE', 'SEND_MESSAGE');
         payload.append('content', content);
-        if (selectedChatFile) {
-            payload.append('file', selectedChatFile);
-        }
 
         let gId = currentGroupId || '';
         let sessionVal = '';
@@ -2503,7 +2966,6 @@ if (file_exists("pages/footer.php")) {
                     const res = JSON.parse(text);
                     if (res.error === 0) {
                         $('#msg-content').val('');
-                        cancelChatFile();
                         fetchMessages();
                     } else {
                         alert("Error: " + res.message);
@@ -2543,6 +3005,7 @@ if (file_exists("pages/footer.php")) {
 
         const payload = new FormData();
         payload.append('POST_TYPE', 'SEARCH_STUDENTS');
+        payload.append('include_shortterm', '1');
         payload.append('query', query);
 
         fetch('faculty_portal.php', { method: 'POST', body: payload })
@@ -2553,12 +3016,15 @@ if (file_exists("pages/footer.php")) {
                     results.append('<div class="search-item text-muted">No students found</div>');
                 } else {
                     res.data.forEach(s => {
+                        const sType = s.s_type || 'student';
                         // Check if already selected
-                        if (selectedGroupStudents.some(st => st.id == s.s_id)) return;
+                        if (selectedGroupStudents.some(st => st.id == s.s_id && st.s_type == sType)) return;
+
+                        const roleBadge = sType === 'shortterm_student' ? '<span class="w3-tag w3-tiny w3-blue" style="font-size:10px; padding:2px;">Short Term</span>' : '<span class="w3-tag w3-tiny w3-green" style="font-size:10px; padding:2px;">Regular</span>';
 
                         results.append(`
-                            <div class="search-item" onclick="addGroupStudent(${s.s_id}, '${s.s_name.replace(/'/g, "\\'")}', '${s.s_roll_no}')">
-                                <strong>${s.s_name}</strong> <span class="text-muted">(Roll: ${s.s_roll_no})</span>
+                            <div class="search-item" onclick="addGroupStudent(${s.s_id}, '${s.s_name.replace(/'/g, "\\'")}', '${s.s_roll_no}', '${sType}')">
+                                <strong>${s.s_name}</strong> <span class="text-muted">(Roll: ${s.s_roll_no})</span> ${roleBadge}
                             </div>
                         `);
                     });
@@ -2566,17 +3032,17 @@ if (file_exists("pages/footer.php")) {
             });
     }
 
-    function addGroupStudent(id, name, roll) {
-        if (!selectedGroupStudents.some(s => s.id == id)) {
-            selectedGroupStudents.push({ id, name, roll });
+    function addGroupStudent(id, name, roll, s_type = 'student') {
+        if (!selectedGroupStudents.some(s => s.id == id && s.s_type == s_type)) {
+            selectedGroupStudents.push({ id, name, roll, s_type });
             renderSelectedGroupStudents();
         }
         $('#g-student-search').val('');
         $('#g-search-results').hide();
     }
 
-    function removeGroupStudent(id) {
-        selectedGroupStudents = selectedGroupStudents.filter(s => s.id != id);
+    function removeGroupStudent(id, s_type = 'student') {
+        selectedGroupStudents = selectedGroupStudents.filter(s => !(s.id == id && s.s_type == s_type));
         renderSelectedGroupStudents();
     }
 
@@ -2592,10 +3058,11 @@ if (file_exists("pages/footer.php")) {
         }
 
         selectedGroupStudents.forEach(s => {
+            const extraStyle = s.s_type === 'shortterm_student' ? 'background: #3b82f6 !important; color: white;' : '';
             container.append(`
-                <div class="student-badge">
+                <div class="student-badge" style="${extraStyle}">
                     <span>${s.name}</span>
-                    <i class="fa fa-times-circle" onclick="removeGroupStudent(${s.id})"></i>
+                    <i class="fa fa-times-circle" onclick="removeGroupStudent(${s.id}, '${s.s_type}')"></i>
                 </div>
             `);
         });
@@ -2619,6 +3086,7 @@ if (file_exists("pages/footer.php")) {
             }
             selectedGroupStudents.forEach(s => {
                 payload.append('student_ids[]', s.id);
+                payload.append('student_types[]', s.s_type || 'student');
             });
         } else {
             payload.append('university', $('#g-uni').val());
@@ -2950,6 +3418,7 @@ if (file_exists("pages/footer.php")) {
         $.ajax({
             url: "faculty_portal.php",
             type: "POST",
+            dataType: "json",
             data: {
                 POST_TYPE: 'SEND_BROADCAST',
                 selected: selected,
@@ -2960,6 +3429,7 @@ if (file_exists("pages/footer.php")) {
                 cat_id: cat_id,
                 sub_cat_id: sub_cat_id,
                 template_sid: template_sid,
+                session_id: $('#session').val() || 0,   // pass selected session
                 sendBtn: 1
             },
             xhr: function () {
@@ -2975,12 +3445,31 @@ if (file_exists("pages/footer.php")) {
             },
             success: function (data) {
                 $('#progress-bar-container').hide();
-                setTimeout(() => {
-                    $('#previewModel').modal('hide');
-                    $('#progress-text').html('0%');
-                    $("#progress-bar").css("width", "0%");
-                    alert('Message sent successfully!');
-                }, 1000);
+                $('#progress-text').html('0%');
+                $('#progress-bar').css('width', '0%');
+                $('#previewModel').modal('hide');
+
+                // Auto-open the session group in the chat sidebar
+                if (data && data.session_id) {
+                    var sesId = data.session_id;
+                    var sesName = data.session_name || 'Session';
+                    var uniShort = data.uni_short || '';
+                    var channelId = 'SES-' + sesId;
+                    var channelTitle = 'Session: ' + sesName + (uniShort ? ' (' + uniShort + ')' : '');
+
+                    // Highlight the correct sidebar item
+                    $('.chat-item').removeClass('active');
+                    $('.chat-item').each(function () {
+                        var onclick = $(this).attr('onclick') || '';
+                        if (onclick.indexOf("'SES-" + sesId + "'") !== -1 ||
+                            onclick.indexOf('"SES-' + sesId + '"') !== -1) {
+                            $(this).addClass('active');
+                        }
+                    });
+
+                    // Open the session channel
+                    selectChannel(channelId, channelTitle);
+                }
             },
             error: function () {
                 $('#progress-bar-container').hide();
@@ -3066,10 +3555,11 @@ if (file_exists("pages/footer.php")) {
                     let html = '<table class="gm-table"><thead><tr style="color: #64748b; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;"><th style="padding-left: 15px;">Name</th><th>Role</th><th>Info</th><th style="text-align: center;">Action</th></tr></thead><tbody>';
                     res.data.forEach(m => {
                         let role = m.role || 'Member';
-                        let isStudent = (role.toLowerCase() === 'student');
+                        let isStudent = (role.toLowerCase() === 'student' || role.toLowerCase() === 'short term student');
                         let roleClass = isStudent ? 'role-student' : 'role-faculty';
+                        let uRole = m.user_role || 'student';
                         let action = isStudent
-                            ? `<div class="action-btn" title="Remove Member" onclick="removeMemberFromGroup(${m.student_id}, '${m.name.replace(/'/g, "\\'")}')"><i class="fa fa-user-times"></i></div>`
+                            ? `<div class="action-btn" title="Remove Member" onclick="removeMemberFromGroup(${m.student_id}, '${m.name.replace(/'/g, "\\'")}', '${uRole}')"><i class="fa fa-user-times"></i></div>`
                             : '<span style="color: #cbd5e1;">-</span>';
 
                         html += `<tr class="gm-row">
@@ -3098,20 +3588,24 @@ if (file_exists("pages/footer.php")) {
         if (query.length < 2) { results.hide(); return; }
         const payload = new FormData();
         payload.append('POST_TYPE', 'SEARCH_STUDENTS');
+        payload.append('include_shortterm', '1');
         payload.append('query', query);
         fetch('faculty_portal.php', { method: 'POST', body: payload }).then(r => r.json()).then(res => {
             results.empty().show();
             res.data.forEach(s => {
-                results.append(`<div class="search-item" style="padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #f1f5f9;" onclick="addMemberToGroup(${s.s_id})"><strong>${s.s_name}</strong> <span class="text-muted" style="font-size: 0.75rem;">(${s.s_roll_no})</span></div>`);
+                const sType = s.s_type || 'student';
+                const roleBadge = sType === 'shortterm_student' ? '<span class="w3-tag w3-tiny w3-blue" style="font-size:10px; padding:2px;">Short Term</span>' : '';
+                results.append(`<div class="search-item" style="padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #f1f5f9;" onclick="addMemberToGroup(${s.s_id}, '${sType}')"><strong>${s.s_name}</strong> <span class="text-muted" style="font-size: 0.75rem;">(${s.s_roll_no})</span> ${roleBadge}</div>`);
             });
         });
     };
 
-    window.addMemberToGroup = function (studentId) {
+    window.addMemberToGroup = function (studentId, sType = 'student') {
         const payload = new FormData();
         payload.append('POST_TYPE', 'ADD_MEMBER');
         payload.append('groupId', currentGroupId);
         payload.append('studentId', studentId);
+        payload.append('studentType', sType);
         fetch('faculty_portal.php', { method: 'POST', body: payload }).then(r => r.json()).then(res => {
             if (res.error === 0) {
                 $('#gm-search-input').val('');
@@ -3121,12 +3615,13 @@ if (file_exists("pages/footer.php")) {
         });
     };
 
-    window.removeMemberFromGroup = function (studentId, studentName) {
+    window.removeMemberFromGroup = function (studentId, studentName, sType = 'student') {
         if (confirm(`Remove ${studentName} from this group?`)) {
             const payload = new FormData();
             payload.append('POST_TYPE', 'REMOVE_MEMBER');
             payload.append('groupId', currentGroupId);
             payload.append('studentId', studentId);
+            payload.append('studentType', sType);
             fetch('faculty_portal.php', { method: 'POST', body: payload }).then(r => r.json()).then(res => {
                 if (res.error === 0) viewGroupMembers(currentGroupId, document.getElementById('active-title').innerText);
                 else alert(res.message);
