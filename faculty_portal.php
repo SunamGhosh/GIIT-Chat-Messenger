@@ -5,6 +5,16 @@ define("TITLE", "GIIT Messanger");
 require_once("$DOC_ROOT/dn_script/connect.php");
 require_once("$DOC_ROOT/validator/validate_gs.php");
 
+// Auto-create group message read status table if it doesn't exist
+$con->query("CREATE TABLE IF NOT EXISTS `group_message_read_status` (
+  `message_id` int(11) NOT NULL,
+  `user_id` int(11) NOT NULL,
+  `user_role` varchar(50) NOT NULL,
+  `read_at` timestamp DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`message_id`, `user_id`, `user_role`),
+  CONSTRAINT `fk_gmrs_message_fac` FOREIGN KEY (`message_id`) REFERENCES `messages`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3;");
+
 if (file_exists("functions.php")) {
     include("functions.php");
 }
@@ -172,6 +182,28 @@ if (isset($_POST['POST_TYPE'])) {
         $semester = $_POST['semester'] ?? '';
         $groupId = $_POST['groupId'] ?? '';
 
+        $file_path = null;
+        $file_name = null;
+        $file_type = null;
+
+        if (isset($_FILES['attachment']) && $_FILES['attachment']['error'] === UPLOAD_ERR_OK) {
+            $upload_dir = __DIR__ . '/uploads/chat_files/';
+            if (!is_dir($upload_dir)) {
+                mkdir($upload_dir, 0755, true);
+            }
+            $tmp_name = $_FILES['attachment']['tmp_name'];
+            $file_name_original = basename($_FILES['attachment']['name']);
+            $file_type = $_FILES['attachment']['type'];
+
+            $ext = pathinfo($file_name_original, PATHINFO_EXTENSION);
+            $new_name = 'chat_' . time() . '_' . rand(1000, 9999) . '.' . $ext;
+
+            if (move_uploaded_file($tmp_name, $upload_dir . $new_name)) {
+                $file_path = 'uploads/chat_files/' . $new_name;
+                $file_name = $file_name_original;
+            }
+        }
+
         // NEW: If sending to a session (no groupId but filters present), make it a tracked broadcast
         if (empty($groupId) && (!empty($uni) || !empty($session) || !empty($course) || !empty($semester))) {
             $broadcast_id = 'BCT-' . time() . '-' . rand(1000, 9999);
@@ -193,13 +225,13 @@ if (isset($_POST['POST_TYPE'])) {
             // Fetch exclusions for this session if it's a session-based broadcast
             $exclusion_key = !empty($session) ? "SES-" . $session : "GLOBAL";
 
-            $std_query = $con->query("SELECT s_id FROM student WHERE $where_str AND s_id NOT IN (SELECT student_id FROM chat_group_exclusions WHERE group_key = '$exclusion_key')");
+            $std_query = $con->query("SELECT s_id FROM student WHERE $where_str AND s_status != 'dropout' AND s_id NOT IN (SELECT student_id FROM chat_group_exclusions WHERE group_key = '$exclusion_key')");
             $success_count = 0;
             if ($std_query) {
                 while ($std = $std_query->fetch_assoc()) {
                     $s_id = $std['s_id'];
-                    $ins = $con->prepare("INSERT INTO messages (sender_id, receiver_id, content, university, session, course, semester, groupId, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())");
-                    $ins->bind_param("iissssss", $faculty_id, $s_id, $content, $uni, $session, $course, $semester, $broadcast_id);
+                    $ins = $con->prepare("INSERT INTO messages (sender_id, receiver_id, content, university, session, course, semester, groupId, file_path, file_name, file_type, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())");
+                    $ins->bind_param("iisssssssss", $faculty_id, $s_id, $content, $uni, $session, $course, $semester, $broadcast_id, $file_path, $file_name, $file_type);
                     if ($ins->execute()) {
                         $success_count++;
                     }
@@ -210,7 +242,7 @@ if (isset($_POST['POST_TYPE'])) {
             // NEW: Send Push (Expo + Firebase)
             if ($success_count > 0) {
                 // Fetch student IDs matching the criteria
-                $token_query = $con->query("SELECT s_id FROM student WHERE $where_str");
+                $token_query = $con->query("SELECT s_id FROM student WHERE $where_str AND s_status != 'dropout'");
                 $target_ids = [];
                 while ($tr = $token_query->fetch_assoc())
                     $target_ids[] = $tr['s_id'];
@@ -226,12 +258,19 @@ if (isset($_POST['POST_TYPE'])) {
         }
 
         // Standard logic for groups/DMs
-        $sql = "INSERT INTO messages (sender_id, content, university, session, course, semester, groupId, createdAt) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, NOW())";
+        $receiver_id = null;
+        if (!empty($groupId) && strpos($groupId, 'DM-') === 0) {
+            if (preg_match('/-S(\d+)$/', $groupId, $matches)) {
+                $receiver_id = intval($matches[1]);
+            }
+        }
+
+        $sql = "INSERT INTO messages (sender_id, receiver_id, content, university, session, course, semester, groupId, file_path, file_name, file_type, createdAt) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())";
         $stmt = $con->prepare($sql);
         if ($stmt) {
             $g_id = !empty($groupId) ? $groupId : null;
-            $stmt->bind_param("issssss", $faculty_id, $content, $uni, $session, $course, $semester, $g_id);
+            $stmt->bind_param("iisssssssss", $faculty_id, $receiver_id, $content, $uni, $session, $course, $semester, $g_id, $file_path, $file_name, $file_type);
             if ($stmt->execute()) {
                 // NEW: Send Push for Group / DM Message
                 if (!empty($g_id)) {
@@ -302,12 +341,27 @@ if (isset($_POST['POST_TYPE'])) {
         // Use a subquery to get counts for broadcast messages (grouped by groupId starting with BCT-)
         $sql = "SELECT m.*, s.s_name as recipient_name,
                 (SELECT COUNT(*) FROM messages m2 WHERE m2.groupId = m.groupId AND m.groupId LIKE 'BCT-%') as broadcast_total,
-                (SELECT COUNT(*) FROM messages m3 WHERE m3.groupId = m.groupId AND m3.is_read = 1 AND m.groupId LIKE 'BCT-%') as broadcast_seen
+                (SELECT COUNT(*) FROM messages m3 WHERE m3.groupId = m.groupId AND m3.is_read = 1 AND m.groupId LIKE 'BCT-%') as broadcast_seen,
+                (SELECT COUNT(*) FROM group_members gm WHERE gm.group_id = CAST(m.groupId AS SIGNED) AND gm.user_role IN ('student', 'shortterm_student')) as group_total,
+                (SELECT COUNT(*) FROM group_message_read_status gmrs WHERE gmrs.message_id = m.id AND gmrs.user_role IN ('student', 'shortterm_student')) as group_seen
                 FROM messages m LEFT JOIN student s ON m.receiver_id = s.s_id WHERE 1=1";
 
         if (!empty($groupId)) {
             $g = mysqli_real_escape_string($con, $groupId);
             $sql .= " AND m.groupId = '$g'";
+
+            // Mark messages as read when faculty retrieves them
+            if (strpos($g, 'DM-') === 0) {
+                $con->query("UPDATE messages SET is_read = 1, read_at = NOW() WHERE groupId = '$g' AND sender_id != $faculty_id AND is_read = 0");
+            } else if (is_numeric($g)) {
+                $gIdInt = intval($g);
+                $gmrsStmt = $con->prepare("INSERT IGNORE INTO group_message_read_status (message_id, user_id, user_role) SELECT id, ?, 'faculty' FROM messages WHERE groupId = ? AND sender_id != ?");
+                if ($gmrsStmt) {
+                    $gmrsStmt->bind_param("isi", $faculty_id, $gIdInt, $faculty_id);
+                    $gmrsStmt->execute();
+                    $gmrsStmt->close();
+                }
+            }
         } else {
             if ($uni)
                 $sql .= " AND (university = '$uni' OR university = '')";
@@ -333,17 +387,41 @@ if (isset($_POST['POST_TYPE'])) {
     }
 
     if ($type === 'GET_BROADCAST_STATS') {
-        $bct_id = mysqli_real_escape_string($con, $_POST['broadcast_id'] ?? '');
+        $bct_id = $_POST['broadcast_id'] ?? '';
         $msg_id = intval($_POST['msg_id'] ?? 0);
 
-        $sql = "SELECT m.is_read, m.read_at, s.s_name, s.s_roll_no 
-                FROM messages m 
-                JOIN student s ON m.receiver_id = s.s_id";
-
         if ($msg_id > 0) {
-            $sql .= " WHERE m.id = $msg_id";
+            $msg_query = $con->query("SELECT groupId, receiver_id FROM messages WHERE id = $msg_id");
+            if ($msg_query && $msg_row = $msg_query->fetch_assoc()) {
+                $gId = $msg_row['groupId'];
+                
+                if ($gId !== null && strpos($gId, 'DM-') !== 0 && strpos($gId, 'BCT-') !== 0 && is_numeric($gId)) {
+                    $sql = "SELECT 
+                                IF(gmrs.read_at IS NOT NULL, 1, 0) as is_read, 
+                                gmrs.read_at, 
+                                IF(gm.user_role = 'student', s.s_name, sts.sts_name) as s_name, 
+                                IF(gm.user_role = 'student', s.s_roll_no, sts.sts_roll_no) as s_roll_no
+                            FROM group_members gm
+                            LEFT JOIN student s ON gm.user_id = s.s_id AND gm.user_role = 'student'
+                            LEFT JOIN short_term_student sts ON gm.user_id = sts.sts_id AND gm.user_role = 'shortterm_student'
+                            LEFT JOIN group_message_read_status gmrs ON gmrs.message_id = $msg_id AND gmrs.user_id = gm.user_id AND gmrs.user_role = gm.user_role
+                            WHERE gm.group_id = " . intval($gId) . " AND gm.user_role IN ('student', 'shortterm_student')";
+                } else {
+                    $sql = "SELECT m.is_read, m.read_at, s.s_name, s.s_roll_no 
+                            FROM messages m 
+                            JOIN student s ON m.receiver_id = s.s_id
+                            WHERE m.id = $msg_id";
+                }
+            } else {
+                echo json_encode(['error' => 1, 'message' => 'Message not found']);
+                exit;
+            }
         } else {
-            $sql .= " WHERE m.groupId = '$bct_id'";
+            $bct_id_esc = mysqli_real_escape_string($con, $bct_id);
+            $sql = "SELECT m.is_read, m.read_at, s.s_name, s.s_roll_no 
+                    FROM messages m 
+                    JOIN student s ON m.receiver_id = s.s_id
+                    WHERE m.groupId = '$bct_id_esc'";
         }
 
         $res = $con->query($sql);
@@ -398,14 +476,14 @@ if (isset($_POST['POST_TYPE'])) {
 
         if ($include_shortterm) {
             $sql = "SELECT s_id, s_name, s_roll_no, 'student' as s_type FROM student 
-                    WHERE s_name LIKE '%$query%' OR s_roll_no LIKE '%$query%' 
+                    WHERE (s_name LIKE '%$query%' OR s_roll_no LIKE '%$query%') AND s_status != 'dropout'
                     UNION
                     SELECT sts_id as s_id, sts_name as s_name, sts_roll_no as s_roll_no, 'shortterm_student' as s_type FROM short_term_student
                     WHERE sts_name LIKE '%$query%' OR sts_roll_no LIKE '%$query%'
                     LIMIT 10";
         } else {
             $sql = "SELECT s_id, s_name, s_roll_no, 'student' as s_type FROM student 
-                    WHERE s_name LIKE '%$query%' OR s_roll_no LIKE '%$query%' 
+                    WHERE (s_name LIKE '%$query%' OR s_roll_no LIKE '%$query%') AND s_status != 'dropout'
                     LIMIT 10";
         }
         $res = $con->query($sql);
@@ -542,7 +620,7 @@ if (isset($_POST['POST_TYPE'])) {
                 $sem_num = str_replace('Sem', '', $semester);
                 $student_sql = "INSERT INTO group_members (group_id, user_id, user_role) 
                                SELECT ?, s_id, 'student' FROM student 
-                               WHERE s_course_id = ? AND s_cur_sem = ?";
+                               WHERE s_course_id = ? AND s_cur_sem = ? AND s_status != 'dropout'";
 
                 // Add university filter if provided
                 if ($uni_id) {
@@ -573,6 +651,28 @@ if (isset($_POST['POST_TYPE'])) {
         $template_content = $_POST['template'] ?? '';
         // Accept session_id from JS to include in redirect info
         $sent_session_id = intval($_POST['session_id'] ?? 0);
+
+        $file_path = null;
+        $file_name = null;
+        $file_type = null;
+
+        if (isset($_FILES['attachment']) && $_FILES['attachment']['error'] === UPLOAD_ERR_OK) {
+            $upload_dir = __DIR__ . '/uploads/chat_files/';
+            if (!is_dir($upload_dir)) {
+                mkdir($upload_dir, 0755, true);
+            }
+            $tmp_name = $_FILES['attachment']['tmp_name'];
+            $file_name_original = basename($_FILES['attachment']['name']);
+            $file_type = $_FILES['attachment']['type'];
+
+            $ext = pathinfo($file_name_original, PATHINFO_EXTENSION);
+            $new_name = 'chat_' . time() . '_' . rand(1000, 9999) . '.' . $ext;
+
+            if (move_uploaded_file($tmp_name, $upload_dir . $new_name)) {
+                $file_path = 'uploads/chat_files/' . $new_name;
+                $file_name = $file_name_original;
+            }
+        }
 
         if (empty($students_id) || empty($template_content)) {
             ob_clean();
@@ -740,8 +840,8 @@ if (isset($_POST['POST_TYPE'])) {
                 // -------------------------------------------------------
                 // STEP 3: Save to messages table
                 // -------------------------------------------------------
-                $stmt = $con->prepare("INSERT INTO messages (sender_id, receiver_id, content, university, session, course, semester, groupId, createdAt) 
-                                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())");
+                $stmt = $con->prepare("INSERT INTO messages (sender_id, receiver_id, content, university, session, course, semester, groupId, file_path, file_name, file_type, createdAt) 
+                                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())");
 
                 $uni = $std_row['s_university_id'];
                 $sess = $std_row['s_session_id'];
@@ -760,7 +860,7 @@ if (isset($_POST['POST_TYPE'])) {
                     }
                 }
 
-                $stmt->bind_param("iissssss", $faculty_id, $s_id, $personalized_msg, $uni, $sess, $crs, $sem, $broadcast_id);
+                $stmt->bind_param("iisssssssss", $faculty_id, $s_id, $personalized_msg, $uni, $sess, $crs, $sem, $broadcast_id, $file_path, $file_name, $file_type);
                 if ($stmt->execute()) {
                     $success_count++;
                 } else {
@@ -794,7 +894,7 @@ if (isset($_POST['POST_TYPE'])) {
         $sql = "SELECT c.course_master_id as id, c.course_short_name as sname, c.course_name as name, COUNT(s.s_id) as student_count 
                 FROM student s 
                 JOIN course_master c ON s.s_course_id = c.course_master_id 
-                WHERE s.s_session_id = $session_id 
+                WHERE s.s_session_id = $session_id AND s.s_status != 'dropout'
                 AND s.s_id NOT IN (SELECT student_id FROM chat_group_exclusions WHERE group_key = '$exclusion_key')
                 GROUP BY c.course_master_id 
                 ORDER BY student_count DESC";
@@ -814,7 +914,7 @@ if (isset($_POST['POST_TYPE'])) {
         $exclusion_key = "SES-" . $session_id;
 
         $sql = "SELECT s_id, s_name, s_roll_no FROM student 
-                WHERE s_session_id = $session_id AND s_course_id = $course_id 
+                WHERE s_session_id = $session_id AND s_course_id = $course_id AND s_status != 'dropout'
                 AND s_id NOT IN (SELECT student_id FROM chat_group_exclusions WHERE group_key = '$exclusion_key')
                 ORDER BY s_name ASC";
         $res = $con->query($sql);
@@ -1209,7 +1309,7 @@ if (!empty($allSessions)) {
     $courses_sql = "SELECT s.s_session_id as session_id, c.course_short_name as sname, COUNT(s.s_id) as student_count 
                     FROM student s 
                     JOIN course_master c ON s.s_course_id = c.course_master_id 
-                    WHERE s.s_session_id IN ($ids_str)
+                    WHERE s.s_session_id IN ($ids_str) AND s.s_status != 'dropout'
                     AND s.s_id NOT IN (SELECT student_id FROM chat_group_exclusions WHERE group_key = CONCAT('SES-', s.s_session_id))
                     GROUP BY s.s_session_id, c.course_master_id 
                     ORDER BY student_count DESC";
@@ -1267,6 +1367,22 @@ if ($res) {
     while ($row = $res->fetch_assoc()) {
         $faculty_groups[] = $row;
     }
+}
+
+$dms = [];
+$res = $con->query("
+    SELECT m.groupId, MAX(m.createdAt) as last_msg_time,
+           (SELECT content FROM messages WHERE groupId = m.groupId ORDER BY createdAt DESC LIMIT 1) as last_msg,
+           s.s_name, s.s_id, s.s_roll_no
+    FROM messages m
+    JOIN student s ON m.groupId = CONCAT('DM-F', '$faculty_id', '-S', s.s_id)
+    WHERE m.groupId LIKE 'DM-F$faculty_id-S%'
+    GROUP BY m.groupId
+    ORDER BY last_msg_time DESC
+");
+if ($res) {
+    while ($row = $res->fetch_assoc())
+        $dms[] = $row;
 }
 
 define('TITLE', 'GIITChat | Faculty Portal');
@@ -1351,7 +1467,7 @@ if (file_exists("pages/header.php")) {
     }
 
     .chat-sidebar {
-        width: 350px;
+        width: 400px;
         border-right: 1px solid var(--border-medium);
         display: flex;
         flex-direction: column;
@@ -1927,6 +2043,39 @@ if (file_exists("pages/header.php")) {
         z-index: 1;
     }
 
+    .filter-container {
+        display: flex;
+        background: #f1f5f9;
+        padding: 5px;
+        border-radius: 12px;
+        gap: 2px;
+        margin-top: 15px;
+    }
+
+    .filter-btn {
+        flex: 1;
+        text-align: center;
+        padding: 10px 4px;
+        cursor: pointer;
+        border: none;
+        background: transparent;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        font-weight: 600;
+        font-size: 0.85rem;
+        border-radius: 8px;
+        color: #64748b;
+    }
+
+    .filter-btn:hover {
+        color: #1e293b;
+    }
+
+    .filter-btn.active {
+        background: #ffffff;
+        color: var(--primary);
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+    }
+
     .g-mode-btn:first-child {
         border-radius: 8px 0 0 8px;
     }
@@ -1999,19 +2148,31 @@ if (file_exists("pages/header.php")) {
     <div class="chat-container">
         <!-- Sidebar -->
         <div class="chat-sidebar">
-            <div class="sidebar-header">
-
-                <div style="display: flex; gap: 8px;">
-                    <button class="header-btn" onclick="$('#groupModal').modal('show')" title="New Group">
-                        <i class="fa fa-users"></i> New Group
-                    </button>
-                    <button class="header-btn" onclick="$('#dmModal').modal('show')" title="New Direct Message">
-                        <i class="fa fa-user-plus"></i>Direct Msg
-                    </button>
+            <div class="sidebar-header" style="flex-direction: column; align-items: stretch; gap: 5px; padding: 20px;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <strong style="font-size: 1.3rem;">GIITChat</strong>
+                    <div style="display: flex; gap: 8px;">
+                        <button class="header-btn" onclick="$('#groupModal').modal('show')" title="New Group"
+                            style="font-weight: 700; font-size: 0.85rem; padding: 8px 12px;">
+                            <i class="fa fa-users" style="margin-right: 5px;"></i> New Group
+                        </button>
+                        <button class="header-btn" onclick="$('#dmModal').modal('show')" title="New Direct Message"
+                            style="font-weight: 700; font-size: 0.85rem; padding: 8px 12px;">
+                            <i class="fa fa-user-plus" style="margin-right: 5px;"></i> Direct Msg
+                        </button>
+                    </div>
+                </div>
+                <div class="filter-container">
+                    <button class="filter-btn active" onclick="filterSidebar('all', this)" id="flt-all">All</button>
+                    <button class="filter-btn" onclick="filterSidebar('broadcast', this)"
+                        id="flt-broadcast">Broadcasts</button>
+                    <button class="filter-btn" onclick="filterSidebar('admin', this)" id="flt-admin">Admin Grps</button>
+                    <button class="filter-btn" onclick="filterSidebar('dm', this)" id="flt-dm">Direct Msgs</button>
                 </div>
             </div>
             <div class="chat-list">
-                <div class="chat-item active" onclick="selectChannel(null, 'Academic Broadcast', event)">
+                <div class="chat-item active chat-item-broadcast"
+                    onclick="selectChannel(null, 'Academic Broadcast', event)">
                     <div style="display: flex; align-items: center;">
                         <div class="chat-item-icon"
                             style="background: linear-gradient(135deg, #ec4899 0%, #db2777 100%); color: white;"><i
@@ -2022,12 +2183,12 @@ if (file_exists("pages/header.php")) {
                         </div>
                     </div>
                 </div>
-                <div class="sidebar-section-label"
+                <div class="sidebar-section-label sidebar-section-admin"
                     style="padding: 12px 20px 5px; font-size: 0.7rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; border-top: 1px solid #f1f5f9; margin-top: 10px;">
                     <b>Groups Made by Admin</b>
                 </div>
                 <?php foreach ($groups as $g): ?>
-                    <div class="chat-item"
+                    <div class="chat-item chat-item-admin"
                         onclick="selectChannel(<?= $g['id'] ?>, '<?= addslashes($g['group_name']) ?>', event)">
                         <div style="display: flex; justify-content: space-between; align-items: center;">
                             <div style="display: flex; align-items: center; flex: 1; overflow: hidden;">
@@ -2070,11 +2231,11 @@ if (file_exists("pages/header.php")) {
                     </div>
                 <?php endforeach; ?>
 
-                <div class="sidebar-section-label"
+                <div class="sidebar-section-label sidebar-section-broadcast"
                     style="padding: 12px 20px 5px; font-size: 0.7rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; border-top: 1px solid #f1f5f9; margin-top: 10px;">
                     Existing broadcast</div>
                 <?php foreach ($allSessions as $s): ?>
-                    <div class="chat-item"
+                    <div class="chat-item chat-item-broadcast"
                         onclick="selectChannel('SES-<?= $s['id'] ?>', 'Session: <?= addslashes($s['name']) ?> (<?= addslashes($s['uni_short'] ?? '') ?>)', event)">
                         <div style="display: flex; align-items: center;">
                             <div class="chat-item-icon"
@@ -2109,6 +2270,37 @@ if (file_exists("pages/header.php")) {
                                         <?php endforeach; ?>
                                     </div>
                                 <?php endif; ?>
+                            </div>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+
+                <div class="sidebar-section-label sidebar-section-dm"
+                    style="padding: 12px 20px 5px; font-size: 0.7rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; border-top: 1px solid #f1f5f9; margin-top: 10px;">
+                    Direct Messages</div>
+                <?php foreach ($dms as $dm): ?>
+                    <div class="chat-item chat-item-dm"
+                        onclick="selectChannel('<?= htmlspecialchars($dm['groupId']) ?>', 'Chat: <?= addslashes($dm['s_name']) ?>', event)">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div style="display: flex; align-items: center; flex: 1; overflow: hidden;">
+                                <div class="chat-item-icon"
+                                    style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white;">
+                                    <i class="fa fa-user"></i>
+                                </div>
+                                <div class="chat-item-content">
+                                    <div class="chat-item-title"><?= htmlspecialchars($dm['s_name']) ?></div>
+                                    <div class="chat-item-subtitle"
+                                        style="display: flex; justify-content: space-between; gap: 5px;">
+                                        <span
+                                            style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                            <?= !empty($dm['last_msg']) ? htmlspecialchars($dm['last_msg']) : 'No messages yet' ?>
+                                        </span>
+                                        <?php if (!empty($dm['last_msg_time'])): ?>
+                                            <span
+                                                style="font-size: 0.65rem; color: #94a3b8; flex-shrink: 0; margin-left: 5px;"><?= date('H:i', strtotime($dm['last_msg_time'])) ?></span>
+                                        <?php endif; ?>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -2157,7 +2349,23 @@ if (file_exists("pages/header.php")) {
                 </div>
                 <div class="composer-area">
                     <form id="chat-form" onsubmit="return false;">
+                        <!-- Attachment Preview -->
+                        <div id="attachment-preview"
+                            style="display: none; align-items: center; gap: 8px; background: #e0e7ff; padding: 6px 12px; border-radius: 12px; font-size: 0.8rem; color: #3b82f6; width: fit-content; margin-bottom: 8px; border: 1px solid #c7d2fe;">
+                            <i class="fa fa-file"></i> <span id="attachment-name"></span>
+                            <i class="fa fa-times" style="cursor: pointer; color: #ef4444; margin-left: 8px;"
+                                onclick="clearAttachment()"></i>
+                        </div>
                         <div class="composer-input-wrapper">
+                            <label for="chat-attachment"
+                                style="cursor: pointer; margin: 0; padding: 10px; color: #64748b; border-radius: 50%; transition: background 0.2s;"
+                                onmouseover="this.style.background='#f1f5f9'"
+                                onmouseout="this.style.background='transparent'" title="Attach File">
+                                <i class="fa fa-paperclip" style="font-size: 1.2rem;"></i>
+                            </label>
+                            <input type="file" id="chat-attachment" style="display: none;"
+                                onchange="updateAttachmentPreview(this)">
+
                             <textarea id="msg-content" placeholder="Type your message here..."
                                 oninput="this.style.height = ''; this.style.height = Math.min(this.scrollHeight, 120) + 'px'"></textarea>
                             <button type="button" id="send-btn" class="send-btn">
@@ -2176,9 +2384,10 @@ if (file_exists("pages/header.php")) {
                     <!-- Left Column: Student List -->
                     <div class="w3-col l7 m12 s12" style="margin-bottom: 20px;">
                         <div class="w3-card w3-white w3-round-large overflow-hidden">
-                            <header class="w3-container w3-light-grey w3-padding">
-                                <h5 style="margin:0; font-weight: 600; color: #344767;"><i
-                                        class="fa fa-users w3-text-blue"></i> Student Selection</h5>
+                            <header
+                                style="padding: 14px 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px 12px 0 0;">
+                                <h5 style="margin:0; font-weight: 700; color: #fff; letter-spacing: 0.3px;"><i
+                                        class="fa fa-users" style="margin-right: 8px;"></i> Student Selection</h5>
                             </header>
 
                             <div class="w3-container w3-padding-16">
@@ -2222,16 +2431,27 @@ if (file_exists("pages/header.php")) {
                             <div class="w3-responsive" style="max-height: 600px; overflow-y: auto;">
                                 <table class="w3-table w3-striped w3-bordered w3-hoverable" id="student-table">
                                     <thead>
-                                        <tr class="w3-light-grey">
-                                            <th style="width: 50px; text-align: center;">
+                                        <tr
+                                            style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #fff;">
+                                            <th style="width: 50px; text-align: center; padding: 13px 10px;">
                                                 <input type="checkbox" id="checkAll" class="w3-check"
                                                     onclick="enabledBtn()">
                                             </th>
-                                            <th>S no.</th>
-                                            <th>Name</th>
-                                            <th>Roll</th>
-                                            <th>Course</th>
-                                            <th>Session</th>
+                                            <th
+                                                style="padding: 13px 10px; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;">
+                                                S no.</th>
+                                            <th
+                                                style="padding: 13px 10px; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;">
+                                                Name</th>
+                                            <th
+                                                style="padding: 13px 10px; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;">
+                                                Roll</th>
+                                            <th
+                                                style="padding: 13px 10px; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;">
+                                                Course</th>
+                                            <th
+                                                style="padding: 13px 10px; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;">
+                                                Session</th>
                                         </tr>
                                     </thead>
                                     <tbody id="table-data">
@@ -2251,9 +2471,10 @@ if (file_exists("pages/header.php")) {
                     <div class="w3-col l5 m12 s12">
                         <!-- Contact Selection Card -->
                         <div class="w3-card w3-white w3-round-large w3-margin-bottom" id="contact-table">
-                            <header class="w3-container w3-light-grey w3-padding">
-                                <h5 style="margin:0; font-weight: 600; color: #344767;"><i
-                                        class="fa fa-address-book w3-text-green"></i> Target Contacts</h5>
+                            <header
+                                style="padding: 14px 20px; background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);">
+                                <h5 style="margin:0; font-weight: 700; color: #fff;"><i class="fa fa-address-book"
+                                        style="margin-right: 8px;"></i> Target Contacts</h5>
                             </header>
                             <div class="w3-container w3-padding-16">
                                 <div class="w3-row">
@@ -2283,9 +2504,10 @@ if (file_exists("pages/header.php")) {
 
                         <!-- Template Selection Card -->
                         <div class="w3-card w3-white w3-round-large w3-margin-bottom">
-                            <header class="w3-container w3-light-grey w3-padding">
-                                <h5 style="margin:0; font-weight: 600; color: #344767;"><i
-                                        class="fa fa-file-text-o w3-text-orange"></i> Message Template</h5>
+                            <header
+                                style="padding: 14px 20px; background: linear-gradient(135deg, #f7971e 0%, #ffd200 100%);">
+                                <h5 style="margin:0; font-weight: 700; color: #fff;"><i class="fa fa-file-text-o"
+                                        style="margin-right: 8px;"></i> Message Template</h5>
                             </header>
                             <div class="w3-container w3-padding-16">
                                 <div class="w3-row-padding" style="margin: 0 -16px;">
@@ -2353,31 +2575,31 @@ if (file_exists("pages/header.php")) {
                                     </div>
                                 </div>
 
-                                <!-- Media Upload -->
-                                <div class="w3-row-padding w3-margin-top" style="margin: 0 -8px;">
-                                    <div class="w3-col s6">
-                                        <label class="w3-button w3-block w3-light-grey w3-border w3-round w3-small"
-                                            style="padding: 10px;">
-                                            <i class="fa fa-image w3-text-blue"></i> Upload Image
-                                            <input type="file" id="wp_image_upload" accept="image/*"
-                                                style="display:none;">
-                                            <input type="hidden" id="wp_image_upload_link" />
-                                        </label>
+                                <!-- Unified File Attachment -->
+                                <div class="w3-margin-top">
+                                    <div id="bc-attachment-preview"
+                                        style="display: none; align-items: center; gap: 8px; background: #e0e7ff; padding: 8px 14px; border-radius: 10px; font-size: 0.82rem; color: #4f46e5; margin-bottom: 10px; border: 1px solid #c7d2fe;">
+                                        <i class="fa fa-file-o"></i>
+                                        <span id="bc-attachment-name"
+                                            style="font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></span>
+                                        <i class="fa fa-times" style="cursor: pointer; color: #ef4444;"
+                                            onclick="clearBcAttachment()"></i>
                                     </div>
-                                    <div class="w3-col s6">
-                                        <label class="w3-button w3-block w3-light-grey w3-border w3-round w3-small"
-                                            style="padding: 10px;">
-                                            <i class="fa fa-file-pdf-o w3-text-red"></i> Upload PDF
-                                            <input type="file" id="wp_pdf_upload" accept="application/pdf"
-                                                style="display:none;">
-                                            <input type="hidden" id="wp_pdf_upload_link" />
-                                        </label>
-                                    </div>
+                                    <label for="bc-attachment"
+                                        style="display: flex; align-items: center; justify-content: center; gap: 10px; padding: 12px; border: 2px dashed #c7d2fe; border-radius: 12px; cursor: pointer; background: #f5f7ff; transition: all 0.25s; color: #4f46e5; font-weight: 600; font-size: 0.85rem;"
+                                        onmouseover="this.style.background='#eef2ff'; this.style.borderColor='#818cf8'"
+                                        onmouseout="this.style.background='#f5f7ff'; this.style.borderColor='#c7d2fe'">
+                                        <i class="fa fa-paperclip" style="font-size: 1.1rem;"></i> Attach File (Image /
+                                        PDF / Doc)
+                                        <input type="file" id="bc-attachment"
+                                            accept="image/*,application/pdf,.doc,.docx" style="display:none;"
+                                            onchange="updateBcAttachmentPreview(this)">
+                                    </label>
                                 </div>
 
                                 <button id="previewBtn" onclick="$('#previewModel').modal('show')" disabled="true"
                                     class="w3-button w3-block w3-blue w3-round-large w3-margin-top w3-large"
-                                    style="height: 50px; font-weight: 600;">
+                                    style="height: 50px; font-weight: 700; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: none; letter-spacing: 0.5px; box-shadow: 0 4px 15px rgba(102,126,234,0.4); transition: all 0.3s;">
                                     <i class="fa fa-paper-plane"></i> Preview & Send
                                 </button>
                             </div>
@@ -2624,6 +2846,9 @@ if (file_exists("pages/footer.php")) {
 }
 ?>
 
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tributejs/5.1.3/tribute.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tributejs/5.1.3/tribute.min.js"></script>
+
 <script>
     var currentGroupId = null;
 
@@ -2647,6 +2872,46 @@ if (file_exists("pages/footer.php")) {
             return false;
         });
 
+        // Initialize Tribute.js for @mentions
+        var tribute = new Tribute({
+            trigger: '@',
+            selectTemplate: function (item) {
+                if (typeof item === 'undefined') return null;
+                return '@' + item.original.name;
+            },
+            menuItemTemplate: function (item) {
+                return '<span style="font-weight:600; color:#1e293b;">' + item.original.name + '</span> <span style="font-size:0.8em;color:#64748b;">(' + item.original.info + ') - <span class="w3-tag w3-tiny ' + (item.original.type === 'Student' ? 'w3-blue' : 'w3-orange') + '">' + item.original.type + '</span></span>';
+            },
+            values: function (text, cb) {
+                if (text.length < 2) { cb([]); return; }
+
+                Promise.all([
+                    fetch('faculty_portal.php', {
+                        method: 'POST',
+                        body: (() => { let f = new FormData(); f.append('POST_TYPE', 'SEARCH_STUDENTS'); f.append('include_shortterm', '1'); f.append('query', text); return f; })()
+                    }).then(r => r.json()),
+                    fetch('faculty_portal.php', {
+                        method: 'POST',
+                        body: (() => { let f = new FormData(); f.append('POST_TYPE', 'SEARCH_FACULTY'); f.append('query', text); return f; })()
+                    }).then(r => r.json())
+                ]).then(([studentRes, facultyRes]) => {
+                    let results = [];
+                    if (studentRes.error === 0 && studentRes.data) {
+                        results = results.concat(studentRes.data.map(s => ({ name: s.s_name, info: s.s_roll_no, type: 'Student' })));
+                    }
+                    if (facultyRes.error === 0 && facultyRes.data) {
+                        results = results.concat(facultyRes.data.map(f => ({ name: f.name, info: f.code, type: 'Faculty' })));
+                    }
+                    cb(results);
+                }).catch(() => { cb([]); });
+            }
+        });
+
+        var msgContent = document.getElementById('msg-content');
+        var templateContent = document.getElementById('template');
+        if (msgContent) tribute.attach(msgContent);
+        if (templateContent) tribute.attach(templateContent);
+
         // Auto refresh every 5 seconds
         setInterval(fetchMessages, 5000);
 
@@ -2660,6 +2925,34 @@ if (file_exists("pages/footer.php")) {
             e.preventDefault();
             $('#drawerMenu').hide();
         });
+    }
+
+    function filterSidebar(type, btn) {
+        $('.filter-btn').removeClass('active');
+        if (btn) {
+            $(btn).addClass('active');
+        } else {
+            $('#flt-' + type).addClass('active');
+        }
+
+        if (type === 'all') {
+            $('.chat-item').show();
+            $('.sidebar-section-label').show();
+        } else {
+            $('.chat-item').hide();
+            $('.sidebar-section-label').hide();
+
+            if (type === 'broadcast') {
+                $('.chat-item-broadcast').show();
+                $('.sidebar-section-broadcast').show();
+            } else if (type === 'admin') {
+                $('.chat-item-admin').show();
+                $('.sidebar-section-admin').show();
+            } else if (type === 'dm') {
+                $('.chat-item-dm').show();
+                $('.sidebar-section-dm').show();
+            }
+        }
     }
 
     function selectChannel(id, title, event) {
@@ -2878,6 +3171,12 @@ if (file_exists("pages/footer.php")) {
                                             <i class="fa fa-users"></i> ${msg.broadcast_seen} / ${msg.broadcast_total} Seen
                                         </div>
                                     `;
+                                } else if (msg.groupId && !msg.groupId.toString().startsWith('DM-')) {
+                                    readStatus = `
+                                        <div style="cursor: pointer; background: rgba(255,255,255,0.2); color: #fff; font-weight: 700; padding: 4px 12px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.3);" onclick="viewBroadcastStats(null, ${msg.id})" title="Click to view read receipts">
+                                            <i class="fa fa-users"></i> ${msg.group_seen} / ${msg.group_total} Seen
+                                        </div>
+                                    `;
                                 } else if (msg.receiver_id) {
                                     readStatus = msg.is_read == 1
                                         ? `<span style="background: var(--success); color: #fff; font-weight: 700; padding: 4px 12px; border-radius: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);" title="Read at ${msg.read_at}" onclick="viewBroadcastStats(null, ${msg.id})"><i class="fa fa-check-circle"></i> Seen</span>`
@@ -2901,10 +3200,37 @@ if (file_exists("pages/footer.php")) {
 
                             let recipientLabel = '';
                             if (isMe) {
-                                if (msg.groupId && msg.groupId.toString().startsWith('BCT-')) {
+                                if (msg.groupId && msg.groupId.toString().startsWith('BCT-') && msg.broadcast_total > 1) {
                                     recipientLabel = `<div style="font-size: 10px; color: #bfdbfe; margin-bottom: 4px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;"><i class="fa fa-bullhorn"></i> Broadcast</div>`;
                                 } else if (msg.recipient_name) {
-                                    recipientLabel = `<div style="font-size: 10px; color: #bfdbfe; margin-bottom: 4px; font-weight: 600;">Sent to: ${msg.recipient_name}</div>`;
+                                    recipientLabel = `<div style="font-size: 10px; color: #bfdbfe; margin-bottom: 4px; font-weight: 600;"><i class="fa fa-user"></i> Direct Message with ${msg.recipient_name}</div>`;
+                                } else {
+                                    recipientLabel = `<div style="font-size: 10px; color: #bfdbfe; margin-bottom: 4px; font-weight: 600;"><i class="fa fa-user"></i> Direct Message</div>`;
+                                }
+                            }
+
+                            // Build file attachment HTML if present
+                            let fileHtml = '';
+                            if (msg.file_path) {
+                                const isImg = msg.file_type && msg.file_type.startsWith('image/');
+                                const fileUrl = '<?= $DOC_ROOT ?>/../' + msg.file_path;
+                                if (isImg) {
+                                    fileHtml = `
+                                        <div style="margin-top: 8px;">
+                                            <a href="${msg.file_path}" target="_blank">
+                                                <img src="${msg.file_path}" alt="${msg.file_name}" style="max-width: 220px; max-height: 180px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); display: block;">
+                                            </a>
+                                        </div>`;
+                                } else {
+                                    const iconClass = msg.file_type && msg.file_type.includes('pdf') ? 'fa-file-pdf-o' : 'fa-file-o';
+                                    fileHtml = `
+                                        <div style="margin-top: 8px;">
+                                            <a href="${msg.file_path}" target="_blank" style="display: inline-flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.2); padding: 8px 14px; border-radius: 10px; color: inherit; text-decoration: none; border: 1px solid rgba(255,255,255,0.3); font-size: 0.8rem; font-weight: 600; backdrop-filter: blur(4px);">
+                                                <i class="fa ${iconClass}" style="font-size: 1.2rem;"></i>
+                                                <span style="max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${msg.file_name || 'Download File'}</span>
+                                                <i class="fa fa-download"></i>
+                                            </a>
+                                        </div>`;
                                 }
                             }
 
@@ -2915,7 +3241,8 @@ if (file_exists("pages/footer.php")) {
                                         ${isMe ? 'You' : 'Student'}
                                     </div>
                                     ${recipientLabel}
-                                    <div class="message-text" style="word-break: break-word;">${msg.content}</div>
+                                    ${msg.content ? `<div class="message-text" style="word-break: break-word;">${msg.content}</div>` : ''}
+                                    ${fileHtml}
                                     <div class="message-footer" style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px; font-size: 10px; opacity: 0.9;">
                                         <span><i class="fa fa-clock-o"></i> ${dateStr} ${time}</span>
                                         <div style="display: flex; align-items: center; gap: 4px;">
@@ -2936,12 +3263,30 @@ if (file_exists("pages/footer.php")) {
             });
     }
 
+    function updateAttachmentPreview(input) {
+        if (input.files && input.files[0]) {
+            $('#attachment-name').text(input.files[0].name);
+            $('#attachment-preview').css('display', 'flex');
+        }
+    }
+
+    function clearAttachment() {
+        $('#chat-attachment').val('');
+        $('#attachment-preview').hide();
+    }
+
     function sendMessage() {
         const content = $('#msg-content').val();
-        if (!content) return;
+        const fileInput = document.getElementById('chat-attachment');
+
+        if (!content && (!fileInput.files || fileInput.files.length === 0)) return;
+
         const payload = new FormData();
         payload.append('POST_TYPE', 'SEND_MESSAGE');
         payload.append('content', content);
+        if (fileInput.files && fileInput.files.length > 0) {
+            payload.append('attachment', fileInput.files[0]);
+        }
 
         let gId = currentGroupId || '';
         let sessionVal = '';
@@ -2966,6 +3311,7 @@ if (file_exists("pages/footer.php")) {
                     const res = JSON.parse(text);
                     if (res.error === 0) {
                         $('#msg-content').val('');
+                        clearAttachment();
                         fetchMessages();
                     } else {
                         alert("Error: " + res.message);
@@ -3401,7 +3747,7 @@ if (file_exists("pages/footer.php")) {
         });
     });
 
-    /* Send WhatsApp */
+    /* Send WhatsApp / Broadcast */
     $('#sendBtn').on('click', function () {
         let template = $('#template').val();
 
@@ -3414,42 +3760,36 @@ if (file_exists("pages/footer.php")) {
         let cat_id = $('#cat_name').val();
         let sub_cat_id = $('#sub_cat_name').val();
         let template_sid = $('#template_short_name').val();
+        const fileInput = document.getElementById('bc-attachment');
 
-        $.ajax({
-            url: "faculty_portal.php",
-            type: "POST",
-            dataType: "json",
-            data: {
-                POST_TYPE: 'SEND_BROADCAST',
-                selected: selected,
-                students_id: students_id,
-                selectContact: selectContact,
-                template: template,
-                totalCheckboxes: totalCheckboxes,
-                cat_id: cat_id,
-                sub_cat_id: sub_cat_id,
-                template_sid: template_sid,
-                session_id: $('#session').val() || 0,   // pass selected session
-                sendBtn: 1
-            },
-            xhr: function () {
-                var xhr = new window.XMLHttpRequest();
-                xhr.upload.addEventListener('progress', function (e) {
-                    if (e.lengthComputable) {
-                        var percent = Math.round((e.loaded / e.total) * 100);
-                        $('#progress-bar').css('width', percent + '%');
-                        $('#progress-text').text(percent + '%');
-                    }
-                }, false);
-                return xhr;
-            },
-            success: function (data) {
+        const payload = new FormData();
+        payload.append('POST_TYPE', 'SEND_BROADCAST');
+        students_id.forEach(id => payload.append('students_id[]', id));
+        selected.forEach(r => payload.append('selected[]', r));
+        selectContact.forEach(c => payload.append('selectContact[]', c));
+        payload.append('template', template);
+        payload.append('totalCheckboxes', totalCheckboxes);
+        payload.append('cat_id', cat_id || '');
+        payload.append('sub_cat_id', sub_cat_id || '');
+        payload.append('template_sid', template_sid || '');
+        payload.append('session_id', $('#session').val() || 0);
+        payload.append('sendBtn', 1);
+        if (fileInput && fileInput.files && fileInput.files.length > 0) {
+            payload.append('attachment', fileInput.files[0]);
+        }
+
+        fetch('faculty_portal.php', {
+            method: 'POST',
+            body: payload
+        })
+            .then(r => r.json())
+            .then(data => {
                 $('#progress-bar-container').hide();
                 $('#progress-text').html('0%');
                 $('#progress-bar').css('width', '0%');
                 $('#previewModel').modal('hide');
+                clearBcAttachment();
 
-                // Auto-open the session group in the chat sidebar
                 if (data && data.session_id) {
                     var sesId = data.session_id;
                     var sesName = data.session_name || 'Session';
@@ -3457,7 +3797,6 @@ if (file_exists("pages/footer.php")) {
                     var channelId = 'SES-' + sesId;
                     var channelTitle = 'Session: ' + sesName + (uniShort ? ' (' + uniShort + ')' : '');
 
-                    // Highlight the correct sidebar item
                     $('.chat-item').removeClass('active');
                     $('.chat-item').each(function () {
                         var onclick = $(this).attr('onclick') || '';
@@ -3466,18 +3805,27 @@ if (file_exists("pages/footer.php")) {
                             $(this).addClass('active');
                         }
                     });
-
-                    // Open the session channel
                     selectChannel(channelId, channelTitle);
                 }
-            },
-            error: function () {
+            })
+            .catch(() => {
                 $('#progress-bar-container').hide();
-                alert('Send script not available (sendMsg.php). Operation simulated.');
+                alert('Send error. Please try again.');
                 $('#previewModel').modal('hide');
-            }
-        });
+            });
     });
+
+    function updateBcAttachmentPreview(input) {
+        if (input.files && input.files[0]) {
+            $('#bc-attachment-name').text(input.files[0].name);
+            $('#bc-attachment-preview').css('display', 'flex');
+        }
+    }
+
+    function clearBcAttachment() {
+        $('#bc-attachment').val('');
+        $('#bc-attachment-preview').hide();
+    }
 
     window.editMessage = function (msgId, oldContent) {
         const newContent = prompt("Edit your message:", oldContent);
@@ -3549,31 +3897,41 @@ if (file_exists("pages/footer.php")) {
         payload.append('groupId', groupId);
 
         fetch('faculty_portal.php', { method: 'POST', body: payload })
-            .then(r => r.json())
-            .then(res => {
-                if (res.error === 0) {
-                    let html = '<table class="gm-table"><thead><tr style="color: #64748b; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;"><th style="padding-left: 15px;">Name</th><th>Role</th><th>Info</th><th style="text-align: center;">Action</th></tr></thead><tbody>';
-                    res.data.forEach(m => {
-                        let role = m.role || 'Member';
-                        let isStudent = (role.toLowerCase() === 'student' || role.toLowerCase() === 'short term student');
-                        let roleClass = isStudent ? 'role-student' : 'role-faculty';
-                        let uRole = m.user_role || 'student';
-                        let action = isStudent
-                            ? `<div class="action-btn" title="Remove Member" onclick="removeMemberFromGroup(${m.student_id}, '${m.name.replace(/'/g, "\\'")}', '${uRole}')"><i class="fa fa-user-times"></i></div>`
-                            : '<span style="color: #cbd5e1;">-</span>';
+            .then(r => r.text())
+            .then(text => {
+                try {
+                    let res = JSON.parse(text);
+                    if (res.error === 0) {
+                        let html = '<table class="gm-table"><thead><tr style="color: #64748b; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;"><th style="padding-left: 15px;">Name</th><th>Role</th><th>Info</th><th style="text-align: center;">Action</th></tr></thead><tbody>';
+                        res.data.forEach(m => {
+                            let role = m.role || 'Member';
+                            let isStudent = (role.toLowerCase() === 'student' || role.toLowerCase() === 'short term student');
+                            let roleClass = isStudent ? 'role-student' : 'role-faculty';
+                            let uRole = m.user_role || 'student';
+                            let mName = m.name || 'Unknown User';
+                            let action = isStudent
+                                ? `<div class="action-btn" title="Remove Member" onclick="removeMemberFromGroup(${m.student_id}, '${mName.replace(/'/g, "\\'")}', '${uRole}')"><i class="fa fa-user-times"></i></div>`
+                                : '<span style="color: #cbd5e1;">-</span>';
 
-                        html += `<tr class="gm-row">
-                            <td style="font-weight: 600; color: #1e293b; font-size: 0.9rem;">${m.name}</td>
-                            <td><span class="role-badge ${roleClass}">${role}</span></td>
-                            <td class="text-muted" style="font-size: 0.85rem;">${m.info}</td>
-                            <td style="display: flex; justify-content: center; border: none; padding-top: 15px;">${action}</td>
-                        </tr>`;
-                    });
-                    html += '</tbody></table>';
-                    $('#group_members_body').html(html);
-                } else {
-                    $('#group_members_body').html(`<div class="alert alert-danger" style="border-radius: 12px;">${res.message}</div>`);
+                            html += `<tr class="gm-row">
+                                <td style="font-weight: 600; color: #1e293b; font-size: 0.9rem;">${mName}</td>
+                                <td><span class="role-badge ${roleClass}">${role}</span></td>
+                                <td class="text-muted" style="font-size: 0.85rem;">${m.info || '-'}</td>
+                                <td style="display: flex; justify-content: center; border: none; padding-top: 15px;">${action}</td>
+                            </tr>`;
+                        });
+                        html += '</tbody></table>';
+                        $('#group_members_body').html(html);
+                    } else {
+                        $('#group_members_body').html(`<div class="alert alert-danger" style="border-radius: 12px;">${res.message}</div>`);
+                    }
+                } catch (e) {
+                    console.error('Failed to parse GET_GROUP_MEMBERS response:', text);
+                    $('#group_members_body').html(`<div class="alert alert-danger" style="border-radius: 12px;">Failed to load members. Server returned invalid response.</div>`);
                 }
+            })
+            .catch(err => {
+                $('#group_members_body').html(`<div class="alert alert-danger" style="border-radius: 12px;">Network error: ${err.message}</div>`);
             });
     };
 

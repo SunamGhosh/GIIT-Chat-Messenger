@@ -9,6 +9,17 @@ if (!$con) {
 }
 mysqli_set_charset($con, "utf8mb4");
 
+// Auto-create group message read status table if it doesn't exist
+$con->query("CREATE TABLE IF NOT EXISTS `group_message_read_status` (
+  `message_id` int(11) NOT NULL,
+  `user_id` int(11) NOT NULL,
+  `user_role` varchar(50) NOT NULL,
+  `read_at` timestamp DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`message_id`, `user_id`, `user_role`),
+  CONSTRAINT `fk_gmrs_message` FOREIGN KEY (`message_id`) REFERENCES `messages`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3;");
+
+
 
 if (file_exists("firebase_helper.php")) {
     include("firebase_helper.php");
@@ -64,7 +75,7 @@ if (!class_exists('ExpoHelper')) {
         /**
          * Get all push tokens for a set of student IDs
          */
-        public static function getStudentTokens($con, $student_ids)
+        public static function getStudentTokens($con, $student_ids, $role = 'student')
         {
             if (empty($student_ids))
                 return [];
@@ -74,17 +85,19 @@ if (!class_exists('ExpoHelper')) {
             $tokens = [];
 
             // 1. Get from new unified table
-            $res1 = $con->query("SELECT push_token FROM user_push_tokens WHERE user_id IN ($ids_str) AND user_role = 'student'");
+            $res1 = $con->query("SELECT push_token FROM user_push_tokens WHERE user_id IN ($ids_str) AND user_role = '$role'");
             if ($res1) {
                 while ($row = $res1->fetch_assoc())
                     $tokens[] = $row['push_token'];
             }
 
             // 2. Get from legacy student table
-            $res2 = $con->query("SELECT expo_token FROM student WHERE s_id IN ($ids_str) AND expo_token IS NOT NULL");
-            if ($res2) {
-                while ($row = $res2->fetch_assoc())
-                    $tokens[] = $row['expo_token'];
+            if ($role === 'student') {
+                $res2 = $con->query("SELECT expo_token FROM student WHERE s_id IN ($ids_str) AND expo_token IS NOT NULL");
+                if ($res2) {
+                    while ($row = $res2->fetch_assoc())
+                        $tokens[] = $row['expo_token'];
+                }
             }
 
             return array_unique($tokens);
@@ -93,9 +106,9 @@ if (!class_exists('ExpoHelper')) {
         /**
          * Smart Send: Routes to Expo or Firebase based on token format
          */
-        public static function routeNotification($con, $target_ids, $title, $body, $data = [])
+        public static function routeNotification($con, $target_ids, $title, $body, $data = [], $role = 'student')
         {
-            $all_tokens = self::getStudentTokens($con, $target_ids);
+            $all_tokens = self::getStudentTokens($con, $target_ids, $role);
             if (empty($all_tokens))
                 return ['error' => 'No tokens found'];
 
@@ -128,10 +141,11 @@ if (!isset($_SESSION['s_id'])) {
 }
 
 $student_id = $_SESSION['s_id'];
-$university = $_SESSION['course']['university_name'] ?? '';
-$course = $_SESSION['course']['course_name'] ?? '';
+$university = $_SESSION['s_university_id'] ?? '';
+$course = $_SESSION['s_course_id'] ?? '';
 $session_id = $_SESSION['s_session_id'] ?? '';
 $semester = "Sem" . ($_SESSION['s_sem'] ?? 1);
+$s_role = (isset($_SESSION['student_type']) && $_SESSION['student_type'] === 'shortterm') ? 'shortterm_student' : 'student';
 
 // AJAX handlers
 if (isset($_GET['ajax'])) {
@@ -179,6 +193,18 @@ if (isset($_GET['ajax'])) {
             $updStmt = $con->prepare($updateSql);
             $updStmt->bind_param("i", $student_id);
             $updStmt->execute();
+
+            // Also record read receipts in group_message_read_status for admin groups
+            if (is_numeric($groupIdParam)) {
+                $gIdInt = intval($groupIdParam);
+                $gmrsSql = "INSERT IGNORE INTO group_message_read_status (message_id, user_id, user_role)
+                            SELECT id, ?, ? FROM messages WHERE groupId = ? AND sender_id != ?";
+                if ($gmrsStmt = $con->prepare($gmrsSql)) {
+                    $gmrsStmt->bind_param("isis", $student_id, $s_role, $gIdInt, $student_id);
+                    $gmrsStmt->execute();
+                    $gmrsStmt->close();
+                }
+            }
         } else {
             $updateSql = "UPDATE messages SET is_read = 1, read_at = NOW() 
                          WHERE (receiver_id = ? OR (receiver_id IS NULL OR receiver_id = 0)) 
@@ -190,17 +216,25 @@ if (isset($_GET['ajax'])) {
         }
 
         $stmt = $con->prepare($sql);
+        if (!$stmt) {
+            echo json_encode(['success' => false, 'error' => 'Query prepare failed: ' . $con->error]);
+            exit;
+        }
         $stmt->bind_param("i", $student_id);
         $stmt->execute();
         $result = $stmt->get_result();
         $messages = [];
         while ($row = $result->fetch_assoc()) {
             if (!empty($row['file_path'])) {
-                // If the file is stored under chatfileuploads but doesn't exist at the root,
+                // If the file is stored under chatfileuploads or uploads/chat_files but doesn't exist at the root,
                 // check if it exists in the admission/ subdirectory (common in live environment).
-                if (strpos($row['file_path'], 'chatfileuploads/') === 0) {
-                    if (!file_exists($row['file_path']) && file_exists('admission/' . $row['file_path'])) {
-                        $row['file_path'] = 'admission/' . $row['file_path'];
+                if (strpos($row['file_path'], 'chatfileuploads/') === 0 || strpos($row['file_path'], 'uploads/chat_files/') === 0) {
+                    if (!file_exists($row['file_path'])) {
+                        if (file_exists('admission/' . $row['file_path'])) {
+                            $row['file_path'] = 'admission/' . $row['file_path'];
+                        } else if (file_exists('../admission/' . $row['file_path'])) {
+                            $row['file_path'] = '../admission/' . $row['file_path'];
+                        }
                     }
                 }
             }
@@ -214,7 +248,7 @@ if (isset($_GET['ajax'])) {
     }
 
     if ($_GET['ajax'] == 'send_message' && $_SERVER['REQUEST_METHOD'] == 'POST') {
-        $content = mysqli_real_escape_string($con, $_POST['content']);
+        $content = $_POST['content'] ?? ''; // Raw content — prepared statement handles escaping
         $groupIdParam = isset($_POST['groupId']) && $_POST['groupId'] !== 'null' ? $_POST['groupId'] : '';
 
         if (empty($content)) {
@@ -228,9 +262,16 @@ if (isset($_GET['ajax'])) {
             exit;
         }
 
-        $insert = "INSERT INTO messages (sender_id, content, groupId, createdAt) VALUES (?, ?, ?, NOW())";
+        $receiver_id = null;
+        if (strpos($groupIdParam, 'DM-') === 0) {
+            if (preg_match('/^DM-F(\d+)/', $groupIdParam, $matches)) {
+                $receiver_id = intval($matches[1]);
+            }
+        }
+
+        $insert = "INSERT INTO messages (sender_id, receiver_id, content, groupId, createdAt) VALUES (?, ?, ?, ?, NOW())";
         $stmt = $con->prepare($insert);
-        $stmt->bind_param("iss", $student_id, $content, $groupIdParam);
+        $stmt->bind_param("iiss", $student_id, $receiver_id, $content, $groupIdParam);
         if ($stmt->execute()) {
             // Send push notifications
             if (strpos($groupIdParam, 'DM-') === 0) {
@@ -267,15 +308,28 @@ if (isset($_GET['ajax'])) {
                     // Fetch other members' IDs (excluding sender)
                     $member_query = $con->query("SELECT user_id, user_role FROM group_members 
                                                WHERE group_id = $groupId 
-                                               AND (user_role = 'student' AND user_id != $student_id OR user_role = 'faculty')");
+                                               AND ((user_role = 'student' OR user_role = 'shortterm_student') OR user_role = 'faculty')");
                     $student_ids = [];
+                    $shortterm_ids = [];
                     $faculty_ids = [];
                     if ($member_query) {
                         while ($mr = $member_query->fetch_assoc()) {
-                            if ($mr['user_role'] === 'student') {
-                                $student_ids[] = $mr['user_id'];
-                            } else {
-                                $faculty_ids[] = $mr['user_id'];
+                            // Skip the sender
+                            $is_sender = false;
+                            if (isset($_SESSION['student_type']) && $_SESSION['student_type'] === 'shortterm' && $mr['user_role'] === 'shortterm_student' && $mr['user_id'] == $student_id) {
+                                $is_sender = true;
+                            } else if ((!isset($_SESSION['student_type']) || $_SESSION['student_type'] !== 'shortterm') && $mr['user_role'] === 'student' && $mr['user_id'] == $student_id) {
+                                $is_sender = true;
+                            }
+
+                            if (!$is_sender) {
+                                if ($mr['user_role'] === 'student') {
+                                    $student_ids[] = $mr['user_id'];
+                                } else if ($mr['user_role'] === 'shortterm_student') {
+                                    $shortterm_ids[] = $mr['user_id'];
+                                } else {
+                                    $faculty_ids[] = $mr['user_id'];
+                                }
                             }
                         }
                     }
@@ -284,7 +338,12 @@ if (isset($_GET['ajax'])) {
 
                     // Send to student members
                     if (!empty($student_ids)) {
-                        ExpoHelper::routeNotification($con, $student_ids, "New Message in $g_name", $notification_body, ['type' => 'group', 'groupId' => $groupId, 'channelId' => 'default']);
+                        ExpoHelper::routeNotification($con, $student_ids, "New Message in $g_name", $notification_body, ['type' => 'group', 'groupId' => $groupId, 'channelId' => 'default'], 'student');
+                    }
+
+                    // Send to shortterm student members
+                    if (!empty($shortterm_ids)) {
+                        ExpoHelper::routeNotification($con, $shortterm_ids, "New Message in $g_name", $notification_body, ['type' => 'group', 'groupId' => $groupId, 'channelId' => 'default'], 'shortterm_student');
                     }
 
                     // Send to faculty admins
@@ -324,8 +383,8 @@ if (isset($_GET['ajax'])) {
                 WHERE m.id > ?
                 AND (
                     ((m.groupId IS NULL OR m.groupId = '0' OR m.groupId = '' OR m.groupId LIKE 'BCT-%') AND (m.receiver_id = ? OR m.receiver_id IS NULL OR m.receiver_id = 0))
-                    OR m.groupId IN (SELECT group_id FROM group_members WHERE user_id = ? AND user_role = 'student')
-                    OR m.groupId LIKE 'DM-%-S$student_id'
+                    OR m.groupId IN (SELECT group_id FROM group_members WHERE user_id = ? AND user_role = '$s_role')
+                    OR m.groupId LIKE 'DM-%-S" . $student_id . "'
                 )
                 AND m.sender_id != ?
                 ORDER BY m.id DESC LIMIT 1";
@@ -345,8 +404,8 @@ if (isset($_GET['ajax'])) {
     if ($_GET['ajax'] == 'get_latest_id') {
         $sql = "SELECT MAX(m.id) as max_id FROM messages m
                 WHERE ((m.groupId IS NULL OR m.groupId = '0' OR m.groupId = '' OR m.groupId LIKE 'BCT-%') AND (m.receiver_id = ? OR m.receiver_id IS NULL OR m.receiver_id = 0))
-                OR m.groupId IN (SELECT group_id FROM group_members WHERE user_id = ? AND user_role = 'student')
-                OR m.groupId LIKE 'DM-%-S$student_id'";
+                OR m.groupId IN (SELECT group_id FROM group_members WHERE user_id = ? AND user_role = '$s_role')
+                OR m.groupId LIKE 'DM-%-S" . $student_id . "'";
         $stmt = $con->prepare($sql);
         $stmt->bind_param("ii", $student_id, $student_id);
         $stmt->execute();
@@ -358,9 +417,10 @@ if (isset($_GET['ajax'])) {
     if ($_GET['ajax'] == 'get_group_members') {
         $g_id = intval($_GET['groupId'] ?? 0);
         if ($g_id > 0) {
-            $sql = "SELECT gm.user_role, s.s_name, s.s_roll_no 
+            $sql = "SELECT gm.user_role, s.s_name, s.s_roll_no, sts.sts_name as shortterm_name, sts.sts_roll_no as shortterm_roll 
                     FROM group_members gm 
                     LEFT JOIN student s ON gm.user_id = s.s_id AND gm.user_role = 'student'
+                    LEFT JOIN short_term_student sts ON gm.user_id = sts.sts_id AND gm.user_role = 'shortterm_student'
                     WHERE gm.group_id = $g_id";
             $res = $con->query($sql);
             $members = [];
@@ -368,6 +428,8 @@ if (isset($_GET['ajax'])) {
                 while ($row = $res->fetch_assoc()) {
                     if ($row['user_role'] === 'student') {
                         $members[] = ['name' => $row['s_name'], 'role' => 'Student', 'info' => $row['s_roll_no']];
+                    } else if ($row['user_role'] === 'shortterm_student') {
+                        $members[] = ['name' => $row['shortterm_name'], 'role' => 'Short Term Student', 'info' => $row['shortterm_roll']];
                     } else {
                         $members[] = ['name' => 'Faculty Admin', 'role' => ucfirst($row['user_role']), 'info' => '-'];
                     }
@@ -386,29 +448,40 @@ if (isset($_GET['ajax'])) {
             // 1. Table creation handled manually by user
 
             // 2. Save to user_push_tokens (New unified table)
+            $role = (isset($_SESSION['student_type']) && $_SESSION['student_type'] === 'shortterm') ? 'shortterm_student' : 'student';
+
             $stmt = $con->prepare("INSERT INTO user_push_tokens (user_id, user_role, push_token) 
-                                   VALUES (?, 'student', ?) 
+                                   VALUES (?, ?, ?) 
                                    ON DUPLICATE KEY UPDATE last_updated = NOW()");
-            $stmt->bind_param("is", $student_id, $token);
+            $stmt->bind_param("iss", $student_id, $role, $token);
             $stmt->execute();
             $stmt->close();
 
             // 3. Save to student table (Legacy support/Backup)
-            if (strpos($token, 'Expo') === false && strpos($token, 'Exponent') === false) {
-                // Native FCM Token
-                $stmt = $con->prepare("UPDATE student SET fcm_token = ? WHERE s_id = ?");
-            } else {
-                // Expo Token
-                $stmt = $con->prepare("UPDATE student SET expo_token = ? WHERE s_id = ?");
+            $legacySuccess = true;
+            $legacyError = '';
+            if ($role === 'student') {
+                if (strpos($token, 'Expo') === false && strpos($token, 'Exponent') === false) {
+                    // Native FCM Token
+                    $stmt = $con->prepare("UPDATE student SET fcm_token = ? WHERE s_id = ?");
+                } else {
+                    // Expo Token
+                    $stmt = $con->prepare("UPDATE student SET expo_token = ? WHERE s_id = ?");
+                }
+
+                $stmt->bind_param("si", $token, $student_id);
+                if (!$stmt->execute()) {
+                    $legacySuccess = false;
+                    $legacyError = $stmt->error;
+                }
+                $stmt->close();
             }
 
-            $stmt->bind_param("si", $token, $student_id);
-            if ($stmt->execute()) {
-                echo json_encode(['success' => true, 'message' => 'Token saved in both systems']);
+            if ($legacySuccess) {
+                echo json_encode(['success' => true, 'message' => 'Token saved in systems']);
             } else {
-                echo json_encode(['success' => false, 'error' => $stmt->error]);
+                echo json_encode(['success' => false, 'error' => $legacyError]);
             }
-            $stmt->close();
         } else {
             echo json_encode(['success' => false, 'error' => 'Token missing']);
         }
@@ -416,6 +489,26 @@ if (isset($_GET['ajax'])) {
     }
 }
 
+
+// Fetch direct message threads for this student
+$dms_sidebar = [];
+$dm_pattern = 'DM-F%-S' . $student_id;
+$dm_res = $con->query("
+    SELECT m.groupId,
+           MAX(m.createdAt) as last_time,
+           (SELECT content FROM messages WHERE groupId = m.groupId ORDER BY createdAt DESC LIMIT 1) as last_msg,
+           MAX(s.s_name) as display_name
+    FROM messages m
+    LEFT JOIN student s ON s.s_id = '$student_id'
+    WHERE m.groupId LIKE '$dm_pattern'
+    GROUP BY m.groupId
+    ORDER BY last_time DESC
+");
+if ($dm_res) {
+    while ($dr = $dm_res->fetch_assoc()) {
+        $dms_sidebar[] = $dr;
+    }
+}
 
 include("header.php");
 ?>
@@ -983,7 +1076,7 @@ include("header.php");
                             <?php
                             $g_query = "SELECT g.* FROM chat_groups g 
                                        JOIN group_members m ON g.id = m.group_id 
-                                       WHERE m.user_id = ? AND m.user_role = 'student'";
+                                       WHERE m.user_id = ? AND m.user_role = '$s_role'";
                             $g_stmt = $con->prepare($g_query);
                             $g_stmt->bind_param("i", $student_id);
                             $g_stmt->execute();
@@ -1003,6 +1096,36 @@ include("header.php");
                                     <span class="notification-badge" id="badge-<?= $group['id'] ?>">0</span>
                                 </div>
                             <?php endwhile; ?>
+
+                            <!-- Direct Messages Section -->
+                            <?php if (!empty($dms_sidebar)): ?>
+                                <div
+                                    style="padding: 6px 4px 4px 4px; font-size: 0.68rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.08em; margin-top: 6px; border-top: 1px solid var(--border-medium); padding-top: 12px;">
+                                    <i class="fa fa-comments-o" style="margin-right: 4px;"></i> Direct Messages
+                                </div>
+                                <?php foreach ($dms_sidebar as $dm): ?>
+                                    <div class="group-item" id="dm-<?= htmlspecialchars($dm['groupId']) ?>"
+                                        onclick="selectGroup('<?= htmlspecialchars($dm['groupId']) ?>', '<?= addslashes($dm['display_name']) ?>', 'Direct Message')">
+                                        <div class="group-icon"
+                                            style="background: linear-gradient(135deg, #10b981 0%, #059669 100%)">
+                                            <i class="fa fa-user"></i>
+                                        </div>
+                                        <div class="group-info" style="flex: 1; overflow: hidden;">
+                                            <span class="group-name"><?= htmlspecialchars($dm['display_name']) ?></span>
+                                            <span class="group-meta"
+                                                style="display: block; font-size: 0.72rem; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                                <?= !empty($dm['last_msg']) ? htmlspecialchars(substr($dm['last_msg'], 0, 40)) . (strlen($dm['last_msg']) > 40 ? '…' : '') : 'No messages yet' ?>
+                                            </span>
+                                        </div>
+                                        <?php if (!empty($dm['last_time'])): ?>
+                                            <span
+                                                style="font-size: 0.65rem; color: #94a3b8; flex-shrink: 0; align-self: flex-start; margin-top: 2px;"><?= date('H:i', strtotime($dm['last_time'])) ?></span>
+                                        <?php endif; ?>
+                                        <span class="notification-badge"
+                                            id="badge-dm-<?= htmlspecialchars($dm['groupId']) ?>">0</span>
+                                    </div>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
                         </div>
                     </div>
 
@@ -1081,7 +1204,7 @@ include("header.php");
             membersBtn.style.display = 'none';
         }
 
-        // Toggle input area
+        // Toggle input area — allow sending in groups and DMs, but not in Academic Notices
         const inputArea = document.getElementById('input-container');
         const noticeOnly = document.getElementById('notice-only');
         if (id) {
@@ -1090,6 +1213,16 @@ include("header.php");
         } else {
             inputArea.style.display = 'none';
             noticeOnly.style.display = 'block';
+        }
+
+        // Update placeholder for DMs
+        const msgInput = document.getElementById('message-input');
+        if (id && id.toString().startsWith('DM-')) {
+            if (msgInput) msgInput.placeholder = `Message ${name}...`;
+            const membersBtn = document.getElementById('view-members-btn');
+            if (membersBtn) membersBtn.style.display = 'none';
+        } else if (id) {
+            if (msgInput) msgInput.placeholder = 'Type your message here...';
         }
 
         fetchMessages();
@@ -1190,7 +1323,10 @@ include("header.php");
         const container = document.getElementById('messages-list');
 
         fetch(`student_message.php?ajax=get_messages&groupId=${currentGroupId || 'null'}`)
-            .then(res => res.json())
+            .then(res => {
+                if (!res.ok) throw new Error(`HTTP error: ${res.status}`);
+                return res.json();
+            })
             .then(data => {
                 if (data.success) {
                     // Update globalLastMessageId if it's the latest
@@ -1207,12 +1343,39 @@ include("header.php");
                     }
 
                     container.innerHTML = '';
+                    let lastDateLabel = '';
+
                     data.messages.forEach(msg => {
                         const isSent = msg.sender_id == <?= $student_id ?>;
+                        const msgDate = new Date(msg.createdAt);
+                        const today = new Date();
+                        const yesterday = new Date();
+                        yesterday.setDate(today.getDate() - 1);
+
+                        // Build a readable date label
+                        const msgDay = msgDate.toDateString();
+                        let dateLabel = '';
+                        if (msgDay === today.toDateString()) {
+                            dateLabel = 'Today';
+                        } else if (msgDay === yesterday.toDateString()) {
+                            dateLabel = 'Yesterday';
+                        } else {
+                            dateLabel = msgDate.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' });
+                        }
+
+                        // Insert date divider when day changes
+                        if (dateLabel !== lastDateLabel) {
+                            lastDateLabel = dateLabel;
+                            const divider = document.createElement('div');
+                            divider.style.cssText = 'display: flex; align-items: center; gap: 12px; margin: 18px 0 10px 0; color: #94a3b8; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;';
+                            divider.innerHTML = `<span style="flex:1; height:1px; background: #e2e8f0;"></span><span style="background: #f1f5f9; padding: 3px 12px; border-radius: 20px; border: 1px solid #e2e8f0; white-space: nowrap;">${dateLabel}</span><span style="flex:1; height:1px; background: #e2e8f0;"></span>`;
+                            container.appendChild(divider);
+                        }
+
                         const div = document.createElement('div');
                         div.className = `message ${isSent ? 'sent' : 'received'}`;
 
-                        const time = new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                        const time = msgDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                         const sender = isSent ? 'You' : (msg.sender_name || 'Admin');
 
                         let fileHTML = '';
@@ -1220,7 +1383,7 @@ include("header.php");
                             const fileName = msg.file_name || 'Attached File';
                             const filePath = msg.file_path;
                             const ext = fileName.split('.').pop().toLowerCase();
-                            
+
                             let iconClass = 'fa-file-o';
                             let iconColor = '#64748b';
                             if (['pdf'].includes(ext)) { iconClass = 'fa-file-pdf-o'; iconColor = '#ef4444'; }
@@ -1228,18 +1391,18 @@ include("header.php");
                             else if (['xls', 'xlsx'].includes(ext)) { iconClass = 'fa-file-excel-o'; iconColor = '#10b981'; }
                             else if (['png', 'jpg', 'jpeg', 'gif'].includes(ext)) { iconClass = 'fa-file-image-o'; iconColor = '#8b5cf6'; }
                             else if (['zip', 'rar'].includes(ext)) { iconClass = 'fa-file-archive-o'; iconColor = '#f59e0b'; }
-                            
+
                             const fileBg = isSent ? 'rgba(255, 255, 255, 0.18)' : 'rgba(0, 0, 0, 0.04)';
                             const fileBorder = isSent ? 'rgba(255, 255, 255, 0.25)' : 'rgba(0, 0, 0, 0.08)';
                             const fileTextClr = isSent ? '#fff' : 'var(--text-main)';
                             const downloadBtnBg = isSent ? 'white' : 'var(--primary)';
                             const downloadBtnIconClr = isSent ? 'var(--primary)' : 'white';
-                            
+
                             let imgThumbnail = '';
                             if (['png', 'jpg', 'jpeg', 'gif'].includes(ext)) {
                                 imgThumbnail = `<a href="${filePath}" target="_blank"><img src="${filePath}" style="max-width: 100%; max-height: 150px; border-radius: 8px; margin-top: 8px; display: block; border: 1px solid rgba(0,0,0,0.05);" /></a>`;
                             }
-                            
+
                             fileHTML = `
                                 <div style="background: ${fileBg}; border: 1px solid ${fileBorder}; color: ${fileTextClr}; border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; display: flex; align-items: center; gap: 12px; backdrop-filter: blur(5px);">
                                     <div style="width: 40px; height: 40px; border-radius: 8px; background: white; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05); flex-shrink: 0;">
@@ -1249,9 +1412,14 @@ include("header.php");
                                         <span style="font-size: 0.82rem; font-weight: 600; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">${fileName}</span>
                                         <span style="font-size: 0.7rem; opacity: 0.8; text-transform: uppercase;">${ext} document</span>
                                     </div>
-                                    <a href="${filePath}" download="${fileName}" style="width: 32px; height: 32px; border-radius: 50%; background: ${downloadBtnBg}; color: ${downloadBtnIconClr}; display: flex; align-items: center; justify-content: center; transition: all 0.2s; box-shadow: 0 2px 4px rgba(0,0,0,0.1); flex-shrink: 0;" onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'">
-                                        <i class="fa fa-download" style="font-size: 0.9rem;"></i>
-                                    </a>
+                                    <div style="display: flex; gap: 6px; flex-shrink: 0;">
+                                        <a href="${filePath}" target="_blank" title="Open" style="width: 32px; height: 32px; border-radius: 50%; background: #f1f5f9; color: #6366f1; display: flex; align-items: center; justify-content: center; transition: all 0.2s; box-shadow: 0 2px 4px rgba(0,0,0,0.1);" onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'">
+                                            <i class="fa fa-eye" style="font-size: 0.9rem;"></i>
+                                        </a>
+                                        <a href="${filePath}" download="${fileName}" title="Download" style="width: 32px; height: 32px; border-radius: 50%; background: ${downloadBtnBg}; color: ${downloadBtnIconClr}; display: flex; align-items: center; justify-content: center; transition: all 0.2s; box-shadow: 0 2px 4px rgba(0,0,0,0.1);" onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'">
+                                            <i class="fa fa-download" style="font-size: 0.9rem;"></i>
+                                        </a>
+                                    </div>
                                 </div>
                                 ${imgThumbnail}
                             `;
@@ -1260,7 +1428,7 @@ include("header.php");
                         div.innerHTML = `
                             <span class="message-info">${sender}</span>
                             ${fileHTML}
-                            <div style="${msg.content ? '' : 'display:none;'}">${msg.content}</div>
+                            <div style="white-space: pre-wrap; word-wrap: break-word; ${msg.content ? '' : 'display:none;'}">${msg.content}</div>
                             <span class="message-time">${time}</span>
                         `;
                         container.appendChild(div);
@@ -1272,6 +1440,12 @@ include("header.php");
                         const latestId = data.messages[data.messages.length - 1].id;
                         localStorage.setItem('giitchat_last_read_id_<?= $student_id ?>', latestId);
                     }
+                }
+            })
+            .catch(err => {
+                console.error('[fetchMessages] Failed to load messages:', err);
+                if (container.innerHTML === '' || container.innerHTML === '<div class="no-messages">No messages yet.</div>') {
+                    container.innerHTML = `<div class="no-messages" style="color:#ef4444;">⚠ Could not load messages. Please refresh.</div>`;
                 }
             });
 
@@ -1376,5 +1550,3 @@ include("header.php");
         </div>
     </div>
 </div>
-
-<?php include("footer.php"); ?>
