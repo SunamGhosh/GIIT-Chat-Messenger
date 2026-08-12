@@ -5,16 +5,6 @@ define("TITLE", "GIIT Messanger");
 require_once("$DOC_ROOT/dn_script/connect.php");
 require_once("$DOC_ROOT/validator/validate_gs.php");
 
-// Auto-create group message read status table if it doesn't exist
-$con->query("CREATE TABLE IF NOT EXISTS `group_message_read_status` (
-  `message_id` int(11) NOT NULL,
-  `user_id` int(11) NOT NULL,
-  `user_role` varchar(50) NOT NULL,
-  `read_at` timestamp DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`message_id`, `user_id`, `user_role`),
-  CONSTRAINT `fk_gmrs_message_fac` FOREIGN KEY (`message_id`) REFERENCES `messages`(`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3;");
-
 if (file_exists("functions.php")) {
     include("functions.php");
 }

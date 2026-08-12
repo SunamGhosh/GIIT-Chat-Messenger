@@ -9,18 +9,6 @@ if (!$con) {
 }
 mysqli_set_charset($con, "utf8mb4");
 
-// Auto-create group message read status table if it doesn't exist
-$con->query("CREATE TABLE IF NOT EXISTS `group_message_read_status` (
-  `message_id` int(11) NOT NULL,
-  `user_id` int(11) NOT NULL,
-  `user_role` varchar(50) NOT NULL,
-  `read_at` timestamp DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`message_id`, `user_id`, `user_role`),
-  CONSTRAINT `fk_gmrs_message` FOREIGN KEY (`message_id`) REFERENCES `messages`(`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3;");
-
-
-
 if (file_exists("firebase_helper.php")) {
     include("firebase_helper.php");
 }
